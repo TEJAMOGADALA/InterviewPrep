@@ -81,6 +81,24 @@ Build the production-ready foundation for an AI-powered Interview Operating Syst
 - **New DB collections + indexes**: problem_assignments (by user+mission, user+pattern), problem_feedback (by user+time), mission_adjustments (by user+date), weaknesses (by user+pattern).
 - **Testing**: 15/15 iteration-3 pytest passing + 15/15 iter2 + 15/15 iter1. Frontend Playwright validated task-toggle style, Company Readiness, drill-down, Coding Arena feedback dialog, Practice More, LeetCode links.
 
+## What's been implemented — 2026-02-01 (iteration 7 · Intelligent Progress Tracking)
+- **Roadmap grew 1043 → 1085 nodes; 7 → 10 tracks** — added **Projects**, **Behavioral** and **Resume / LinkedIn** tracks with 5-10 starter nodes each. Zero UI redesign; the same tree engine renders them.
+- **Normalized status vocabulary** across the whole app: `not_started | in_progress | completed | mastered | revision_due`. Legacy `available`/`locked` rows keep working — they're mapped to `not_started` on read. `revision_due` is **derived** when a completed/mastered node's `next_revision` is in the past.
+- **KnowledgeNode model extended** (Mongo) with new per-user per-node fields: `attempts`, `actual_solve_minutes`, `bookmarked`, `favorite`, `completion_date`. Existing fields (status, confidence, mastery_percentage, revision_bucket, next_revision, notes) untouched.
+- **Rollup engine now computes**: `total_topics` (leaf-only), `completed_topics`, `remaining_topics`, `completion_pct`, `estimated_hours_remaining` — recursively rolled up from leaves. Parents also aggregate bookmarked/favorite/attempt counters and derive `revision_due` if any descendant is due.
+- **New backend endpoints (all additive, no old endpoints changed)**:
+  - `POST /api/roadmap/nodes/{id}/status` — explicit status transition; stamps `completion_date` + 3-day `next_revision` on completed/mastered; seeds mastery/confidence sensibly on first mark.
+  - `POST /api/roadmap/nodes/{id}/bookmark` / `/favorite` — optimistic toggles.
+  - `POST /api/roadmap/nodes/{id}/attempt` — `$inc` attempts + optional actual_minutes; auto-seeds `status=in_progress` on first attempt.
+  - `GET /api/roadmap/summary` — Mission Control dashboard: overall completion + weighted readiness (weighted by `mastery_weight`), per-track completion %, today's completed count, counts of revision_due / bookmarked / favorite.
+- **Reusable frontend building blocks** in `/app/frontend/src/components/progress/`: `StatusBadge`, `ProgressBar`, `CategoryStats`, `FilterChips`, `NodeActions`. Hook `/app/frontend/src/hooks/useProgressTree.js` fetches the tree once, caches to `localStorage` (`prepos:roadmap-tree:v1`), and exposes a pure `matchNode(node, activeFilters)` predicate any tree walk can plug in.
+- **Existing pages enhanced (no layout redesign)**:
+  - **KnowledgeBase**: chip filter row inserted between search and tree — Completed / Incomplete / Revision Due / Bookmarked / Favorite / Easy / Medium / Hard / per-company chips. Tree walk composes text + chip filters. Every topic row now shows a normalized `StatusBadge` (incl. `revision_due`) plus small bookmark / favorite indicators when set.
+  - **DeepTopicPage**: `NodeActions` (bookmark + favorite optimistic toggles) in the hero; a **Record Attempt** button prompts for minutes; quick **Mark in progress / completed / mastered** buttons. All wired to the new endpoints; the existing notes + confidence slider stay exactly where they were.
+  - **MissionControl**: compact **Interview Progress** strip added above the bento grid with tiles for Overall, DSA, LLD, HLD, Behavioral, and Today (completed count + revision-due / bookmarked counts). Powered by `/api/roadmap/summary`.
+- **Every legacy node ID preserved** — all previously-tracked user progress remains valid.
+- **Tests**: 33/33 new backend tests + 336/337 full suite pass (the 1 pre-existing iter3 flake — unrelated). Report: `/app/test_reports/iteration_6.json`. Test file: `/app/backend/tests/test_iteration7_progress.py`.
+
 ## What's been implemented — 2026-02-01 (iteration 6 · LLD/HLD Deep Expansion)
 - **Roadmap grew 329 → 1043 nodes** — still data-only, still zero UI / API / model changes.
 - **LLD** (13 modules, 212 nodes):
