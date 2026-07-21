@@ -1,0 +1,113 @@
+{
+  "theme": "dark-first",
+  "design_concept": "Premium Dark AI SaaS (Linear/Vercel/Cursor inspired). Focus on high-contrast, minimal gradients, 1px subtle strokes, and dark glassmorphism. It should feel like a command center for elite engineers.",
+  "typography": {
+    "heading_font": "Outfit",
+    "body_font": "Manrope",
+    "mono_font": "JetBrains Mono",
+    "rules": [
+      "BANNED: Inter, Roboto, Open Sans, Space Grotesk for headings. Only use Outfit for headings to maintain a premium tech feel.",
+      "Headings (Size > 32px) MUST use tracking-tight.",
+      "Overlines/Labels MUST be Uppercase + Tiny (text-xs) + Wide Spacing (tracking-[0.2em]) using JetBrains Mono.",
+      "Hierarchy gap rule: Jump between heading and subheading must not exceed 2 Tailwind steps."
+    ]
+  },
+  "colors": {
+    "background": "#0B0F19",
+    "surface": "#131825",
+    "surface_glass": "rgba(19, 24, 37, 0.6)",
+    "primary": "#6366F1",
+    "secondary": "#3B82F6",
+    "text_primary": "#F8FAFC",
+    "text_secondary": "#94A3B8",
+    "border": "rgba(255,255,255,0.08)",
+    "rules": [
+      "NEVER use pure #000000 or #808080. Always use the designated Near Black #0B0F19.",
+      "Layered elevation via background lightness shifts instead of heavy shadows. Use border-white/5 or border-white/10 to define edges.",
+      "One saturated accent color in a desaturated system for clear focal points."
+    ]
+  },
+  "visual_enhancers": {
+    "glassmorphism": "backdrop-blur-xl bg-[#131825]/60 border border-white/10 shadow-lg",
+    "the_tracing_beam": "High-conversion cards (like the active onboarding step) should have a dynamic glowing border or a solid 1px accent border.",
+    "neumorphism_tactile": "For small action buttons: mix soft shadows with sharp inner contrasts, sharp 1px border to ground it."
+  },
+  "grids_and_layouts": {
+    "dashboard": "High Density Grid (Mode B). Base Grid: grid-cols-1 md:grid-cols-3 lg:grid-cols-4. Gap: gap-6. Every pixel must be utilized. Use h-full on children.",
+    "onboarding_wizard": "Centered floating glass card. Progress indicators using sleek horizontal bars or step nodes. Dark overlays (bg-black/50) behind modals.",
+    "sidebar": "Sleek glass look. 250px fixed width on desktop. Collapsible on mobile. Active states should use the primary color with 10% opacity background.",
+    "spacing": "Generous Spacing Philosophy. Use 2-3x more spacing. Containers with borders must have padding (p-6 or p-8)."
+  },
+  "components": {
+    "buttons": "Slightly rounded (rounded-lg or rounded-xl). Interaction animations required (hover:bg-opacity-90 active:scale-95). Only use primary color for main CTA. Secondary buttons should be transparent with 1px border.",
+    "cards": "Dark Glassmorphism. bg-[#131825] border border-white/5 rounded-2xl hover:border-white/15 transition-colors.",
+    "inputs": "Shadcn based. bg-white/5 border border-white/10 text-white focus:ring-2 focus:ring-primary focus:border-transparent.",
+    "ai_assistant_panel": "Collapsible docked panel on the right side. Must feel like a premium command center. Use backdrop blur and separate it with a 1px border-l border-white/10.",
+    "cmd_k_palette": "Global search UI, glassmorphic overlay, quick actions with mono font shortcuts.",
+    "rules": [
+      "Use Shadcn UI for forms, inputs, selects, dialogs, dropdowns.",
+      "Custom layouts for auth pages.",
+      "All interactive elements MUST include 'data-testid' attribute.",
+      "No fully transparent dropdown backgrounds."
+    ]
+  },
+  "motion": {
+    "rules": [
+      "Micro-animations on hover states, transitions, entrance animations.",
+      "Transition effects: use specific properties (transition-all is banned). transition-transform, transition-opacity, transition-colors.",
+      "Staggered entrance animations for lists (like the activity timeline)."
+    ]
+  },
+  "accessibility": {
+    "rules": [
+      "Focus states MUST have HIGHER contrast.",
+      "Normal text: Min 4.5:1 contrast. Large text: 3:1.",
+      "Respect prefers-reduced-motion."
+    ]
+  },
+  "image_urls": {
+    "auth_background": {
+      "url": "https://images.unsplash.com/photo-1689443111130-6e9c7dfd8f9e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMGRhcmslMjB0ZWNobm9sb2d5JTIwZ2VvbWV0cmljJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3ODQ2NDgxNTd8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Abstract dark background with purple geometric design for auth pages."
+    },
+    "tech_pattern": {
+      "url": "https://images.unsplash.com/photo-1638864616275-9f0b291a2eb6?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwzfHxhYnN0cmFjdCUyMGRhcmslMjB0ZWNobm9sb2d5JTIwZ2VvbWV0cmljJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3ODQ2NDgxNTd8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Dark and white minimal tech background pattern."
+    },
+    "profile_avatar_1": {
+      "url": "https://images.unsplash.com/photo-1638290047807-4c9d389b9aa6",
+      "description": "Tech professional portrait for user profile."
+    },
+    "profile_avatar_2": {
+      "url": "https://images.unsplash.com/photo-1764546373114-2d7a87221733",
+      "description": "Tech professional portrait for user profile."
+    }
+  },
+  "instructions_to_main_agent": [
+    "You have .js files not .tsx files. Write your React components using JavaScript (.js/.jsx).",
+    "Install lucide-react or @phosphor-icons/react for icons.",
+    "Install framer-motion for animations.",
+    "Implement the Layout shell with Sidebar, Header (Cmd+K + Global Search), and docked AI Assistant panel.",
+    "Build standard Auth flow (Register, Login, Forgot/Reset Password).",
+    "Build 'Mission Initialization' Onboarding wizard (7 steps: welcome, choose target companies, current position, daily study hours slider, self-assessment sliders, interview target date picker, animated Mission Initialization progress screen).",
+    "Build 'Mission Control' Dashboard with 7 bento-grid placeholder widgets (Today's Mission, Interview Readiness, Study Streak, Upcoming Revision, Knowledge Progress, Recent Activity, Notifications).",
+    "Build Settings page (Profile, Theme, Study Hours, Target Companies, AI Configuration with provider dropdown/Gemini API Key/Model/Temperature, Notification Preferences).",
+    "Build Multi-user Profile page.",
+    "Include 'data-testid' attributes in all interactive/important UI elements.",
+    "Ensure 'sonner' is used for toasts."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur).",
+    "You MUST NOT apply universal transition. Eg: transition: all. Always add transitions for specific properties.",
+    "You MUST NOT center align the app container (.App { text-align: center; }).",
+    "Always use modern button styles.",
+    "NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 for icons.",
+    "Every interaction needs micro-animations - hover states, transitions.",
+    "Use 2-3x more spacing than feels comfortable.",
+    "NEVER use placeholder URLs. Use the provided image_urls."
+  ]
+}
