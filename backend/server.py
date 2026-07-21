@@ -13,6 +13,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from auth_utils import hash_password, verify_password
 from routes_auth import router as auth_router
 from routes_user import router as user_router
+from routes_missions import router as missions_router
 
 # ------------------------- DB -------------------------
 mongo_url = os.environ["MONGO_URL"]
@@ -55,6 +56,7 @@ async def health():
 app.include_router(api_router)
 app.include_router(auth_router)
 app.include_router(user_router)
+app.include_router(missions_router)
 
 # ------------------------- Startup -------------------------
 logging.basicConfig(
@@ -74,6 +76,13 @@ async def on_startup():
     await db.password_reset_tokens.create_index(
         "expires_at", expireAfterSeconds=0
     )
+    # Mission engine indexes
+    await db.daily_missions.create_index([("user_id", 1), ("date", -1)])
+    await db.daily_missions.create_index([("user_id", 1), ("date", 1)], unique=True)
+    await db.knowledge_progress.create_index([("user_id", 1), ("topic", 1)], unique=True)
+    await db.study_streaks.create_index("user_id", unique=True)
+    await db.revisions.create_index([("user_id", 1), ("next_review_date", 1)])
+    await db.activity_events.create_index([("user_id", 1), ("ts", -1)])
     logger.info("MongoDB indexes ensured.")
 
     # Seed admin

@@ -1,29 +1,29 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
+import { toast } from 'sonner';
 import {
   Target, Flame, ShieldCheck, RefreshCcw, GraduationCap,
-  Activity, Bell, ArrowRight, Sparkles,
+  Activity, Bell, ArrowRight, Sparkles, Check, SkipForward, Loader2,
+  CheckCircle2, Circle, Clock, Zap,
 } from 'lucide-react';
+import { format, formatDistanceToNow, parseISO } from 'date-fns';
 import { GlassCard } from '@/components/common/GlassCard';
 import { DASHBOARD } from '@/constants/testIds';
 import { useAuth } from '@/contexts/AuthContext';
-import { userService } from '@/services/auth.service';
+import { dashboardService, missionService } from '@/services/mission.service';
 import { TARGET_COMPANIES } from '@/config/companies';
-import { format, formatDistanceToNow } from 'date-fns';
+import { formatApiError } from '@/utils/formatApiError';
+import { cn } from '@/lib/utils';
 
-function StatChip({ label, value, tone = 'default' }) {
-  const tones = {
-    default: 'text-foreground',
-    up: 'text-emerald-400',
-    warn: 'text-amber-400',
-  };
-  return (
-    <div className="flex flex-col">
-      <span className="overline">{label}</span>
-      <span className={`font-display text-2xl font-semibold tracking-tight ${tones[tone]}`}>{value}</span>
-    </div>
-  );
-}
+const ACTIVITY_META = {
+  mission_completed:  { dot: 'bg-emerald-400',  label: 'Mission completed' },
+  mission_skipped:    { dot: 'bg-amber-400',    label: 'Mission skipped' },
+  task_completed:     { dot: 'bg-primary',      label: 'Task completed' },
+  profile_updated:    { dot: 'bg-secondary',    label: 'Profile updated' },
+  settings_changed:   { dot: 'bg-secondary',    label: 'Settings changed' },
+  daily_login:        { dot: 'bg-white/40',     label: 'Signed in' },
+  mission_generated:  { dot: 'bg-primary',      label: 'Mission generated' },
+};
 
 function WidgetHeader({ icon: Icon, title, action }) {
   return (
@@ -39,21 +39,99 @@ function WidgetHeader({ icon: Icon, title, action }) {
   );
 }
 
+function difficultyChipClass(d) {
+  if (d === 'easy')   return 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300';
+  if (d === 'hard')   return 'border-rose-400/30 bg-rose-400/10 text-rose-300';
+  return 'border-amber-400/30 bg-amber-400/10 text-amber-300';
+}
+
+function taskKindIcon(kind) {
+  if (kind === 'practice') return <Zap className="h-3.5 w-3.5" />;
+  if (kind === 'revise')   return <RefreshCcw className="h-3.5 w-3.5" />;
+  return <GraduationCap className="h-3.5 w-3.5" />;
+}
+
 export default function MissionControl() {
   const { user } = useAuth();
-  const [onboarding, setOnboarding] = useState(null);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busyTask, setBusyTask] = useState(null);
+  const [busyAction, setBusyAction] = useState(null);
 
-  useEffect(() => {
-    userService.getOnboarding().then(setOnboarding).catch(() => setOnboarding(null));
+  const load = useCallback(async () => {
+    try {
+      const d = await dashboardService.get();
+      setData(d);
+    } catch (err) {
+      toast.error(formatApiError(err));
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const targetCompanies = (onboarding?.target_companies || [])
+  useEffect(() => { load(); }, [load]);
+
+  const onCompleteTask = async (taskId) => {
+    if (!data) return;
+    setBusyTask(taskId);
+    try {
+      await missionService.completeTask(data.mission.id, taskId);
+      await load();
+    } catch (err) {
+      toast.error(formatApiError(err));
+    } finally {
+      setBusyTask(null);
+    }
+  };
+
+  const onCompleteMission = async () => {
+    if (!data) return;
+    setBusyAction('complete');
+    try {
+      await missionService.completeMission(data.mission.id);
+      toast.success('Mission completed. Streak updated.');
+      await load();
+    } catch (err) {
+      toast.error(formatApiError(err));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const onSkipMission = async () => {
+    if (!data) return;
+    setBusyAction('skip');
+    try {
+      await missionService.skipMission(data.mission.id);
+      toast('Mission skipped.', { icon: <SkipForward className="h-4 w-4" /> });
+      await load();
+    } catch (err) {
+      toast.error(formatApiError(err));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  if (loading || !data) {
+    return (
+      <div className="py-24 flex flex-col items-center gap-3 text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        <span className="overline">Loading workspace</span>
+      </div>
+    );
+  }
+
+  const { mission, streak, readiness, knowledge, revisions, activity, onboarding } = data;
+  const tasks = mission.tasks || [];
+  const doneCount = tasks.filter((t) => t.completed).length;
+  const totalCount = tasks.length || 1;
+  const progressPct = Math.round((doneCount / totalCount) * 100);
+  const missionCompleted = mission.status === 'completed';
+  const missionSkipped = mission.status === 'skipped';
+
+  const targetCompanies = (onboarding.target_companies || [])
     .map((id) => TARGET_COMPANIES.find((c) => c.id === id))
     .filter(Boolean);
-
-  const daysToTarget = onboarding?.interview_target_date
-    ? Math.max(0, Math.ceil((new Date(onboarding.interview_target_date) - new Date()) / (1000 * 60 * 60 * 24)))
-    : null;
 
   return (
     <div className="space-y-6" data-testid={DASHBOARD.root}>
@@ -68,13 +146,13 @@ export default function MissionControl() {
             Welcome back, {user?.name?.split(' ')[0]}.
           </h1>
           <p className="text-sm text-muted-foreground mt-1.5">
-            Your workspace is calibrated for {targetCompanies.length || '—'} target {targetCompanies.length === 1 ? 'company' : 'companies'}
-            {daysToTarget !== null && <> · {daysToTarget} days to target</>}.
+            Calibrated for {targetCompanies.length || '—'} target {targetCompanies.length === 1 ? 'company' : 'companies'}
+            {onboarding.days_to_target != null && <> · {onboarding.days_to_target} days to target</>}.
           </p>
         </div>
         <div className="hidden sm:flex items-center gap-2 text-xs font-mono text-muted-foreground">
           <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-          System online · Phase 1
+          System online · Mission Engine v1
         </div>
       </motion.div>
 
@@ -90,26 +168,129 @@ export default function MissionControl() {
             icon={Target}
             title="Today's Mission"
             action={
-              <button className="text-xs font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors">
-                View brief
-              </button>
+              <span className={cn('px-2 py-0.5 rounded-full text-[11px] font-mono uppercase tracking-wider border',
+                missionCompleted ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300'
+                : missionSkipped ? 'border-amber-400/30 bg-amber-400/10 text-amber-300'
+                : 'border-primary/30 bg-primary/10 text-primary')}
+              >
+                {missionCompleted ? 'Completed' : missionSkipped ? 'Skipped' : 'In progress'}
+              </span>
             }
           />
-          <div className="mt-2">
-            <h2 className="font-display text-2xl font-semibold tracking-tight leading-snug max-w-md">
-              Your first mission unlocks with the Mission Engine.
+          <div className="mt-1">
+            <h2 className="font-display text-2xl font-semibold tracking-tight leading-snug max-w-lg">
+              {mission.title}
             </h2>
             <p className="mt-2 text-sm text-muted-foreground max-w-md">
-              The engine will schedule targeted DSA, LLD, HLD and system fundamentals based on your baseline. Ships in the next drop.
+              {mission.learning_objective}
             </p>
             <div className="mt-6 grid grid-cols-3 gap-6">
-              <StatChip label="Focus block" value="—" />
-              <StatChip label="Est. time" value="—" />
-              <StatChip label="Difficulty" value="—" />
+              <div>
+                <div className="overline mb-1">Focus</div>
+                <div className="text-sm font-medium">{mission.focus_area}</div>
+              </div>
+              <div>
+                <div className="overline mb-1">Est. time</div>
+                <div className="text-sm font-medium flex items-center gap-1.5">
+                  <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                  {Math.round(mission.estimated_duration_minutes / 60 * 10) / 10} h
+                </div>
+              </div>
+              <div>
+                <div className="overline mb-1">Difficulty</div>
+                <span className={cn('inline-block px-2 py-0.5 rounded-md text-xs border capitalize', difficultyChipClass(mission.difficulty))}>
+                  {mission.difficulty}
+                </span>
+              </div>
             </div>
-            <button className="mt-8 inline-flex items-center gap-2 text-sm text-primary hover:text-primary/80 transition-colors">
-              Preview mission types <ArrowRight className="h-3.5 w-3.5" />
-            </button>
+
+            {/* Progress */}
+            <div className="mt-6">
+              <div className="flex items-center justify-between mb-2">
+                <span className="overline">Progress</span>
+                <span className="font-mono text-xs text-muted-foreground">{doneCount} / {tasks.length}</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
+                <motion.div
+                  className="h-full bg-gradient-to-r from-primary to-secondary"
+                  animate={{ width: `${progressPct}%` }}
+                  transition={{ type: 'spring', stiffness: 200, damping: 30 }}
+                />
+              </div>
+            </div>
+
+            {/* Tasks */}
+            <div className="mt-5 space-y-2">
+              {tasks.map((t) => {
+                const isBusy = busyTask === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => !t.completed && !missionCompleted && !missionSkipped && onCompleteTask(t.id)}
+                    disabled={t.completed || missionCompleted || missionSkipped || isBusy}
+                    data-testid={`mission-task-${t.id}`}
+                    className={cn(
+                      'group w-full text-left flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors',
+                      t.completed
+                        ? 'border-emerald-400/20 bg-emerald-400/[0.06]'
+                        : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/[0.12]',
+                    )}
+                  >
+                    <span className={cn('h-5 w-5 rounded-full border flex items-center justify-center shrink-0',
+                      t.completed ? 'border-emerald-400 bg-emerald-400/20 text-emerald-300' : 'border-white/15')}>
+                      {isBusy ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : t.completed ? <Check className="h-3 w-3" />
+                        : <Circle className="h-2 w-2" />}
+                    </span>
+                    <span className={cn('flex-1 text-sm', t.completed && 'line-through text-muted-foreground')}>
+                      {t.title}
+                    </span>
+                    <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-mono text-muted-foreground uppercase tracking-wider">
+                      {taskKindIcon(t.kind)}
+                      {t.kind}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Actions */}
+            {!missionCompleted && !missionSkipped && (
+              <div className="mt-6 flex flex-wrap gap-2.5">
+                <button
+                  onClick={onCompleteMission}
+                  disabled={busyAction === 'complete'}
+                  data-testid="mission-complete-button"
+                  className="h-10 px-4 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-medium btn-primary-glow disabled:opacity-60 transition-colors inline-flex items-center gap-2"
+                >
+                  {busyAction === 'complete'
+                    ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Completing…</>
+                    : <><CheckCircle2 className="h-3.5 w-3.5" />Mark mission complete</>}
+                </button>
+                <button
+                  onClick={onSkipMission}
+                  disabled={busyAction === 'skip'}
+                  data-testid="mission-skip-button"
+                  className="h-10 px-4 rounded-lg border border-white/[0.1] hover:bg-white/[0.04] text-sm text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-2"
+                >
+                  {busyAction === 'skip'
+                    ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Skipping…</>
+                    : <><SkipForward className="h-3.5 w-3.5" />Skip today</>}
+                </button>
+              </div>
+            )}
+            {missionCompleted && (
+              <div className="mt-6 flex items-center gap-2 text-sm text-emerald-300">
+                <CheckCircle2 className="h-4 w-4" />
+                Nice work — mission logged. New mission arrives at 00:00 UTC.
+              </div>
+            )}
+            {missionSkipped && (
+              <div className="mt-6 flex items-center gap-2 text-sm text-amber-300">
+                <SkipForward className="h-4 w-4" />
+                Skipped for today. Streak will reset unless you complete tomorrow's mission.
+              </div>
+            )}
           </div>
         </GlassCard>
 
@@ -117,99 +298,113 @@ export default function MissionControl() {
         <GlassCard data-testid={DASHBOARD.widgetReadiness} className="p-6">
           <WidgetHeader icon={ShieldCheck} title="Interview Readiness" />
           <div className="flex items-end gap-3">
-            <span className="font-display text-4xl font-semibold tracking-tight">42<span className="text-lg text-muted-foreground">%</span></span>
-            <span className="text-xs text-amber-400 mb-1">Baseline</span>
+            <span className="font-display text-4xl font-semibold tracking-tight">
+              {Math.round(readiness)}<span className="text-lg text-muted-foreground">%</span>
+            </span>
+            <span className={cn('text-xs mb-1', readiness >= 70 ? 'text-emerald-400' : readiness >= 40 ? 'text-amber-400' : 'text-muted-foreground')}>
+              {readiness >= 70 ? 'On track' : readiness >= 40 ? 'Building' : 'Baseline'}
+            </span>
           </div>
           <div className="mt-4 h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
-            <div className="h-full w-[42%] bg-gradient-to-r from-primary to-secondary" />
+            <motion.div
+              className="h-full bg-gradient-to-r from-primary to-secondary"
+              animate={{ width: `${readiness}%` }}
+              transition={{ type: 'spring', stiffness: 200, damping: 30 }}
+            />
           </div>
-          <p className="mt-3 text-xs text-muted-foreground">Recalculates after each mission completes.</p>
+          <p className="mt-3 text-xs text-muted-foreground">Weighted across DSA · Java · LLD · HLD · Core CS.</p>
         </GlassCard>
 
         {/* Study Streak */}
         <GlassCard data-testid={DASHBOARD.widgetStreak} className="p-6">
           <WidgetHeader icon={Flame} title="Study Streak" />
           <div className="flex items-baseline gap-2">
-            <span className="font-display text-4xl font-semibold tracking-tight">0</span>
+            <span className="font-display text-4xl font-semibold tracking-tight">{streak.current}</span>
             <span className="text-sm text-muted-foreground">days</span>
           </div>
           <div className="mt-4 flex gap-1.5">
-            {Array.from({ length: 7 }).map((_, i) => (
-              <span key={i} className="flex-1 h-5 rounded-md bg-white/[0.04] border border-white/[0.06]" />
+            {streak.week_grid.map((active, i) => (
+              <span
+                key={i}
+                className={cn(
+                  'flex-1 h-5 rounded-md border',
+                  active ? 'bg-primary/40 border-primary/50' : 'bg-white/[0.04] border-white/[0.06]',
+                )}
+                title={active ? 'Active' : ''}
+              />
             ))}
           </div>
-          <p className="mt-3 text-xs text-muted-foreground">Complete today's mission to start.</p>
+          <p className="mt-3 text-xs text-muted-foreground">
+            {streak.current > 0 ? `Longest streak · ${streak.longest} days` : 'Complete today\'s mission to start.'}
+          </p>
         </GlassCard>
 
         {/* Upcoming Revision */}
         <GlassCard data-testid={DASHBOARD.widgetRevision} className="p-6 md:col-span-1 lg:col-span-2">
           <WidgetHeader icon={RefreshCcw} title="Upcoming Revision" />
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {['Trees & Recursion', 'Design a URL Shortener', 'OS · Deadlocks'].map((t) => (
-              <div key={t} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-                <div className="overline mb-1">Queued</div>
-                <p className="text-sm">{t}</p>
-              </div>
-            ))}
-          </div>
-          <p className="mt-4 text-xs text-muted-foreground">Spaced-repetition engine populates this daily.</p>
+          {revisions.length === 0 ? (
+            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 text-sm text-muted-foreground">
+              No revisions queued yet. They'll appear once you complete tasks.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {revisions.slice(0, 3).map((r) => (
+                <div key={r.id} className={cn(
+                  'rounded-lg border p-3',
+                  r.is_due ? 'border-primary/30 bg-primary/[0.06]' : 'border-white/[0.06] bg-white/[0.02]',
+                )}>
+                  <div className="overline mb-1">
+                    {r.is_due ? 'Due now' : `In ${Math.max(1, Math.ceil((new Date(r.next_review_date) - new Date()) / (86400000)))}d`}
+                  </div>
+                  <p className="text-sm line-clamp-2">{r.task_title}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="mt-4 text-xs text-muted-foreground">Spaced repetition · 1d → 3d → 7d → 14d → 30d.</p>
         </GlassCard>
 
         {/* Knowledge Progress */}
         <GlassCard data-testid={DASHBOARD.widgetKnowledge} className="p-6 md:col-span-2">
           <WidgetHeader icon={GraduationCap} title="Knowledge Progress" />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {['DSA', 'LLD', 'HLD', 'Fundamentals'].map((k, i) => {
-              const pct = onboarding
-                ? [
-                    onboarding.self_assessment.dsa,
-                    onboarding.self_assessment.lld,
-                    onboarding.self_assessment.hld,
-                    Math.round(
-                      (onboarding.self_assessment.operating_systems +
-                        onboarding.self_assessment.dbms +
-                        onboarding.self_assessment.computer_networks) / 3,
-                    ),
-                  ][i] * 10
-                : 0;
-              return (
-                <div key={k}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-sm">{k}</span>
-                    <span className="font-mono text-xs text-muted-foreground">{pct}%</span>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
-                    <div className="h-full bg-primary/80" style={{ width: `${pct}%` }} />
-                  </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">
+            {knowledge.map((k) => (
+              <div key={k.topic}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-sm">{k.label}</span>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {Math.round(k.score)}%{k.completions > 0 && <span className="ml-1 text-primary">· {k.completions}✓</span>}
+                  </span>
                 </div>
-              );
-            })}
+                <div className="h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
+                  <div className="h-full bg-primary/80" style={{ width: `${k.score}%` }} />
+                </div>
+              </div>
+            ))}
           </div>
         </GlassCard>
 
         {/* Recent Activity */}
         <GlassCard data-testid={DASHBOARD.widgetActivity} className="p-6 md:col-span-2">
           <WidgetHeader icon={Activity} title="Recent Activity" />
-          <div className="space-y-3">
-            {[
-              { t: 'Workspace initialized', ts: onboarding?.created_at, kind: 'system' },
-              { t: 'Profile created', ts: user?.created_at, kind: 'account' },
-              { t: 'Mission Engine · pending activation', ts: null, kind: 'pending' },
-            ].map((e, i) => (
-              <div key={i} className="flex items-center gap-3 text-sm">
-                <span
-                  className={
-                    'h-2 w-2 rounded-full ' +
-                    (e.kind === 'pending' ? 'bg-amber-400' : 'bg-primary')
-                  }
-                />
-                <span className="flex-1">{e.t}</span>
-                <span className="text-xs text-muted-foreground font-mono">
-                  {e.ts ? formatDistanceToNow(new Date(e.ts), { addSuffix: true }) : '—'}
-                </span>
-              </div>
-            ))}
-          </div>
+          {activity.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nothing yet — start today's mission.</p>
+          ) : (
+            <div className="space-y-3">
+              {activity.slice(0, 6).map((e) => {
+                const meta = ACTIVITY_META[e.kind] || { dot: 'bg-white/30', label: e.kind };
+                return (
+                  <div key={e.id} className="flex items-center gap-3 text-sm">
+                    <span className={cn('h-2 w-2 rounded-full shrink-0', meta.dot)} />
+                    <span className="flex-1 truncate">{e.title}</span>
+                    <span className="text-xs text-muted-foreground font-mono whitespace-nowrap">
+                      {formatDistanceToNow(parseISO(e.ts), { addSuffix: true })}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </GlassCard>
 
         {/* Notifications preview */}
@@ -219,7 +414,7 @@ export default function MissionControl() {
             title="Notifications"
             action={
               <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] font-mono text-primary">
-                1 new
+                {revisions.filter((r) => r.is_due).length} due
               </span>
             }
           />
@@ -227,17 +422,17 @@ export default function MissionControl() {
             <div className="rounded-lg border border-primary/30 bg-primary/[0.06] p-3">
               <div className="flex items-center gap-2 mb-1">
                 <Sparkles className="h-3.5 w-3.5 text-primary" />
-                <span className="text-sm font-medium">Foundation build ready</span>
+                <span className="text-sm font-medium">Today's mission generated</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                Your workspace is initialized. The Mission Engine ships in Phase 2.
+                Focus · {mission.focus_area}. Estimated {Math.round(mission.estimated_duration_minutes / 60 * 10) / 10} hours.
               </p>
             </div>
             <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
               <div className="text-sm font-medium mb-0.5">Target date locked</div>
               <p className="text-xs text-muted-foreground">
-                {onboarding?.interview_target_date
-                  ? `Aiming for ${format(new Date(onboarding.interview_target_date), 'PPP')}.`
+                {onboarding.interview_target_date
+                  ? `Aiming for ${format(parseISO(onboarding.interview_target_date), 'PPP')}.`
                   : 'No target date set yet.'}
               </p>
             </div>

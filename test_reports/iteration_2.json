@@ -1,0 +1,27 @@
+{
+  "summary": "Mission Engine V1 end-to-end validation. 15/15 backend pytest cases pass covering /api/missions/today (deterministic, tasks>=2, correct hours, focus_topic in TOPIC_KEYS), task-completion (knowledge_progress seeded from baseline, revision item at now+1d stage=0), mission-complete (status/completed_at/remaining tasks completed/streak upsert/mission_completed event/idempotent same day), mission-skip, /api/dashboard shape (all 8 top-level keys, 7 knowledge topics, week_grid len 7, daily_login logged once/day), /api/revisions/queue (is_due flag), /api/activity (desc), /api/missions/history, PATCH /api/onboarding (recalc estimated_prep_days, profile_updated event, regenerates today mission with new duration), readiness weighted formula (35/15/15/15/6.67/6.67/6.66), readiness delta after completion. Frontend: fresh user → onboarding → /app/mission-control renders all 6 widgets with REAL data (Interview Readiness=48%, real streak=0 initially, real mission title/focus/difficulty/duration/tasks/progress bar). Task click toggled progress 0/3 → 1/3. Mark mission complete → status Completed, Study Streak=1, activity list shows mission_completed+task_completed+daily_login+mission_generated events. Upcoming Revision widget shows real revision (IN 1D). Profile page Mission profile edit → save round trip works. Notifications page shows real backend activity, no hardcoded mocks.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_missions.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/missions_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes_missions.py::complete_task advances stage on ANY 'revise' task by matching only user+topic+completed=false (no id linkage). If a user has multiple revisions on the same topic, the earliest sorted (undefined order) is bumped — consider adding an explicit revision_id on the MissionTask for 'revise' tasks (revision_task_ids exists but not consumed here). Minor correctness risk for multi-revision topics.",
+    "Onboarding PATCH computes estimated_prep_days from merged self_assessment averaging default 5 for unknown topics; since self_assessment is stored inside onboarding, merged is fine. OK.",
+    "Duplicate mission on race: no unique index on (user_id, date) for daily_missions. server.py indexes should ensure uniqueness; verify presence. Two concurrent GET /missions/today could theoretically double-insert. Recommend a unique compound index.",
+    "compute_readiness uses baseline projection for missing topics — matches spec but means a user with ZERO progress shows ~48% (not 0). Product-intended per problem statement.",
+    "mission_engine choose_focus_topic multiplies weight by (1+bias) — if urgency==0 (score already 100), bias never fires; acceptable.",
+    "MissionControl.jsx uses data-testid dashboard-widget-* (7 widgets) as defined in constants/testIds/prepos.js. Consistent."
+  ],
+  "updated_files": ["/app/backend/tests/test_missions.py", "/app/test_reports/iteration_2.json"],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100%"},
+  "test_credentials": "admin@prepos.io / Admin@123. Fresh users generated per test: TEST_miss_<hex>@prepos.io / Test@1234 (backend), TEST_ui_<hex>@prepos.io / Test@1234 (frontend).",
+  "seed_data_creation": "Many fresh TEST_miss_* and TEST_ui_* users created with onboarding + missions + knowledge_progress + revisions + activity_events. No cleanup fixture (each test uses its own fresh user for determinism).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "backend tests are split: /app/backend/tests/backend_test.py (iter1: health/auth/onboarding/profile/settings) and /app/backend/tests/test_missions.py (iter2: mission engine). Run both with `pytest /app/backend/tests/ -v`. Playwright: to auth without hitting login form, POST /api/auth/register via page.request (cookies auto-share with browser context) then goto /app/mission-control directly. TestIds: dashboard-widget-today-mission | dashboard-widget-readiness | dashboard-widget-streak | dashboard-widget-knowledge | dashboard-widget-revision | dashboard-widget-activity | mission-task-<id> | mission-complete-button | mission-skip-button | profile-mission-edit-button | profile-mission-save-button | profile-hours-slider | profile-target-date | profile-company-<id> | profile-position-<id> | notifications-page-root.",
+  "rca of the issue": "N/A — no bugs found."
+}

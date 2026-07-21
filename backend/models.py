@@ -114,3 +114,80 @@ class SettingsUpdate(BaseModel):
     theme: Optional[str] = None
     ai_config: Optional[AIConfig] = None
     notification_prefs: Optional[NotificationPrefs] = None
+
+
+# ============ Missions ============
+
+TOPIC_KEYS = ["dsa", "java", "lld", "hld", "operating_systems", "dbms", "computer_networks"]
+
+
+class MissionTask(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    title: str
+    kind: str  # 'practice' | 'study' | 'revise'
+    topic: str  # one of TOPIC_KEYS
+    completed: bool = False
+    completed_at: Optional[str] = None
+
+
+class DailyMission(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    date: str  # YYYY-MM-DD (user local date, but stored as UTC date)
+    title: str
+    focus_area: str
+    focus_topic: str  # one of TOPIC_KEYS
+    difficulty: str  # easy | medium | hard
+    estimated_duration_minutes: int
+    learning_objective: str
+    tasks: List[MissionTask]
+    revision_task_ids: List[str] = []  # ids of tasks that are revision items
+    status: str = "in_progress"  # in_progress | completed | skipped
+    created_at: str = Field(default_factory=_now_iso)
+    completed_at: Optional[str] = None
+    skipped_at: Optional[str] = None
+
+
+class KnowledgeProgress(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    topic: str  # one of TOPIC_KEYS
+    score: float = 0.0  # 0-100
+    completions: int = 0
+    last_updated: str = Field(default_factory=_now_iso)
+
+
+class StudyStreak(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    current_streak: int = 0
+    longest_streak: int = 0
+    last_active_date: Optional[str] = None  # YYYY-MM-DD
+    updated_at: str = Field(default_factory=_now_iso)
+
+
+class RevisionItem(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    task_title: str
+    topic: str
+    stage: int = 0  # 0..4 (1d, 3d, 7d, 14d, 30d)
+    next_review_date: str  # YYYY-MM-DD
+    created_at: str = Field(default_factory=_now_iso)
+    completed: bool = False
+
+
+class ActivityEvent(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    kind: str  # mission_completed | mission_skipped | task_completed | profile_updated | settings_changed | daily_login | mission_generated
+    title: str
+    description: Optional[str] = None
+    ts: str = Field(default_factory=_now_iso)
+
+
+class OnboardingPatch(BaseModel):
+    target_companies: Optional[List[str]] = None
+    current_position: Optional[str] = None
+    daily_study_hours: Optional[float] = Field(default=None, ge=1, le=8)
+    interview_target_date: Optional[str] = None

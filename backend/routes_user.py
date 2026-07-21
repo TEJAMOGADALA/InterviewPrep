@@ -92,6 +92,13 @@ async def update_profile(payload: ProfileUpdate, user=Depends(get_current_user))
     updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
     if updates:
         await db.users.update_one({"id": user["id"]}, {"$set": updates})
+        from models import ActivityEvent
+        ev = ActivityEvent(
+            user_id=user["id"], kind="profile_updated",
+            title="Profile updated",
+            description=", ".join(updates.keys()),
+        )
+        await db.activity_events.insert_one(ev.model_dump())
     updated = await db.users.find_one({"id": user["id"]})
     updated.pop("_id", None)
     updated.pop("password_hash", None)
@@ -121,5 +128,13 @@ async def update_settings(payload: SettingsUpdate, user=Depends(get_current_user
         await db.settings.update_one(
             {"user_id": user["id"]}, {"$set": updates}, upsert=True
         )
+        # Activity log
+        from models import ActivityEvent
+        ev = ActivityEvent(
+            user_id=user["id"], kind="settings_changed",
+            title="Settings updated",
+            description=", ".join(updates.keys()),
+        )
+        await db.activity_events.insert_one(ev.model_dump())
     doc = await db.settings.find_one({"user_id": user["id"]})
     return UserSettings(**_clean(doc))
