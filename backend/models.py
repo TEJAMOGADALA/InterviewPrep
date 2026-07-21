@@ -128,6 +128,9 @@ class MissionTask(BaseModel):
     topic: str  # one of TOPIC_KEYS
     completed: bool = False
     completed_at: Optional[str] = None
+    # Optional linkage for adaptive coding practice
+    pattern: Optional[str] = None
+    problem_count: Optional[int] = None
 
 
 class DailyMission(BaseModel):
@@ -191,3 +194,62 @@ class OnboardingPatch(BaseModel):
     current_position: Optional[str] = None
     daily_study_hours: Optional[float] = Field(default=None, ge=1, le=8)
     interview_target_date: Optional[str] = None
+
+
+# ============ Problem Bank & Feedback ============
+
+class ProblemAssignment(BaseModel):
+    """A problem tied to a mission task or extra-practice slot."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    problem_id: str  # references PROBLEMS list in problem_bank.py
+    mission_id: Optional[str] = None
+    pattern: str
+    source: str = "mission"  # 'mission' | 'practice_more'
+    status: str = "assigned"  # assigned | solved | attempted | skipped
+    notes: Optional[str] = None
+    assigned_at: str = Field(default_factory=_now_iso)
+    completed_at: Optional[str] = None
+
+
+class ProblemFeedbackPayload(BaseModel):
+    difficulty_rating: str  # easy | medium | hard
+    solved_status: str  # without_hints | one_hint | multi_hints | could_not_solve
+    confidence: int = Field(ge=1, le=10)
+    time_taken_minutes: int = Field(ge=0, le=600)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+
+
+class ProblemFeedback(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    problem_id: str
+    assignment_id: Optional[str] = None
+    mission_id: Optional[str] = None
+    pattern: str
+    difficulty_rating: str
+    solved_status: str
+    confidence: int
+    time_taken_minutes: int
+    notes: Optional[str] = None
+    submitted_at: str = Field(default_factory=_now_iso)
+
+
+class MissionAdjustment(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    for_date: str  # YYYY-MM-DD (date this adjustment applies to)
+    reason: str
+    detected_weaknesses: List[str] = []
+    inserted_prerequisites: List[str] = []
+    advance: bool = False  # true if user is progressing
+    created_at: str = Field(default_factory=_now_iso)
+
+
+class WeaknessRecord(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    pattern: str
+    signal: str  # low_confidence | many_hints | timeout | could_not_solve
+    detected_at: str = Field(default_factory=_now_iso)
+    resolved_at: Optional[str] = None

@@ -2,8 +2,8 @@ import api from './api';
 
 export const missionService = {
   getToday: () => api.get('/missions/today').then((r) => r.data),
-  completeTask: (missionId, taskId) =>
-    api.post(`/missions/${missionId}/tasks/${taskId}/complete`).then((r) => r.data),
+  toggleTask: (missionId, taskId) =>
+    api.post(`/missions/${missionId}/tasks/${taskId}/toggle`).then((r) => r.data),
   completeMission: (missionId) =>
     api.post(`/missions/${missionId}/complete`).then((r) => r.data),
   skipMission: (missionId) =>
@@ -24,7 +24,23 @@ export const activityService = {
   list: (limit = 20) => api.get('/activity', { params: { limit } }).then((r) => r.data),
 };
 
-// Extend user service with onboarding patch
 export const onboardingService = {
   patch: (payload) => api.patch('/onboarding', payload).then((r) => r.data),
+};
+
+export const codingArenaService = {
+  get: () => api.get('/coding-arena').then((r) => r.data),
+  practiceMore: (pattern) =>
+    api.post('/coding-arena/practice-more', { pattern }).then((r) => r.data),
+  submitFeedback: (assignmentId, payload) =>
+    api.post(`/coding-arena/assignments/${assignmentId}/feedback`, payload).then((r) => r.data),
+  getPatterns: () => api.get('/problems/patterns').then((r) => r.data),
+};
+
+export const knowledgeService = {
+  tree: () => api.get('/knowledge/tree').then((r) => r.data),
+};
+
+export const readinessService = {
+  companies: () => api.get('/readiness/companies').then((r) => r.data),
 };

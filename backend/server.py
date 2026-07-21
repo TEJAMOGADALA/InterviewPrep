@@ -83,6 +83,13 @@ async def on_startup():
     await db.study_streaks.create_index("user_id", unique=True)
     await db.revisions.create_index([("user_id", 1), ("next_review_date", 1)])
     await db.activity_events.create_index([("user_id", 1), ("ts", -1)])
+    # V2 adaptive engine indexes
+    await db.problem_assignments.create_index([("user_id", 1), ("mission_id", 1)])
+    await db.problem_assignments.create_index([("user_id", 1), ("pattern", 1)])
+    await db.problem_feedback.create_index([("user_id", 1), ("submitted_at", -1)])
+    await db.problem_feedback.create_index([("user_id", 1), ("pattern", 1)])
+    await db.mission_adjustments.create_index([("user_id", 1), ("for_date", -1)])
+    await db.weaknesses.create_index([("user_id", 1), ("pattern", 1)])
     logger.info("MongoDB indexes ensured.")
 
     # Seed admin

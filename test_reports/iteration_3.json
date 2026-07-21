@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 3 (Mission Engine V2 adaptive + Coding Arena) fully validated. Backend 15/15 pytest cases pass (test_iteration3.py) covering: GET /coding-arena with mission+2-4 assignments each carrying real LeetCode problem (title/difficulty/pattern/estimated_minutes/leetcode_url); GET /problems/patterns → 16 patterns / 87 total problems; POST /coding-arena/practice-more returns unseen problem, 404 on exhaustion (bit_manipulation, 4 items); POST /assignments/{id}/feedback persists ProblemFeedback, marks status=solved (or attempted for could_not_solve), boosts KnowledgeProgress, schedules revision (conf 9 → ~2d, conf 3 → 1d floor); low-conf feedback creates WeaknessRecord; task toggle both ways (completed↔not-completed), un-toggle reverts mission status from completed→in_progress; backwards-compat /tasks/{id}/complete delegates to toggle; adaptive REVISE mode after low-conf feedbacks — MissionAdjustment.reason mentions weak signals, detected_weaknesses includes failing pattern, mission contains PATTERN_PREREQUISITES revise tasks; adaptive ADVANCE mode after conf-10 without-hints feedbacks — advance=true, difficulty='hard'; dashboard.activity capped at 5, dashboard.company_readiness includes target 'google' with is_target=true, dashboard.adjustment present; GET /knowledge/tree returns 7 domains with 16 DSA subtopics carrying progress/problems_solved/avg_confidence/revision_status∈{fresh,due,mastered}; GET /readiness/companies returns 12 companies with per-company weight formulas (Google≠Oracle scores); backwards-compat /complete still works. Frontend Playwright validated on public URL: fresh DSA-focus user → Mission Control → task click shows emerald-tint background rgb(52,211,153,0.16) with green check icon and text-decoration:none (NO strike-through); second click reverts background to white/0.05; Open Arena link renders for practice tasks; Company Readiness widget shows Google with TARGET badge and 55%; Knowledge Progress DSA row expands into all 16 subtopics with FRESH chip; Coding Arena page shows 'Today's pattern · Graphs', 3 problem cards, Log feedback dialog fills (difficulty/solved/confidence slider/time/notes) and Save closes dialog+shows toast+card updates to SOLVED with 'Confidence 10/10 · 25m taken · without hints'; Practice More appends 4th card labelled +PRACTICE. No regressions observed on existing pages.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/dashboard (adjustment field)",
+        "issue": "Prior to fix, /api/dashboard used find_one() on mission_adjustments which returned the OLDEST adjustment for the day (Mongo insertion-order dependent). After regeneration (e.g. via PATCH /onboarding) the stale 'Standard progression from baseline.' adjustment was returned instead of the newly-created adaptive revise/advance record. FIXED by sorting created_at desc and taking first."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3.py",
+    "/app/backend/tests/test_missions.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes_missions.py::_generate_today_mission inserts a NEW MissionAdjustment on every regeneration for the same date. There is no upsert or dedup, so mission_adjustments grows one row per regeneration. Consider upsert-by-(user_id,for_date) OR add a compound index+use replace_one to keep audit clean.",
+    "routes_missions.py::toggle_task on UN-toggle does not decrement KnowledgeProgress score/completions — reversing task marks it incomplete but the knowledge gain from the initial completion persists. If this is intentional (audit purity), consider documenting; otherwise decrement to reflect true progress state.",
+    "routes_missions.py::toggle_task on UN-toggle also does NOT remove the RevisionItem it created on original completion — repeated toggle→untoggle→toggle creates duplicate revision items. Consider soft-delete or lookup-by-(task_title,topic,stage=0) before inserting.",
+    "routes_missions.py::submit_problem_feedback allows multiple feedback submissions per assignment (each inserts a new ProblemFeedback + revision item + potentially WeaknessRecord). Consider upsert semantics or blocking re-submission (spec says 'Update feedback' — but backend keeps appending).",
+    "routes_missions.py::practice_more infers pattern from first practice task when no pattern posted — fine, but returns 400 on empty pattern rather than 404; consider 400→404 for consistency with 'exhausted pattern' 404.",
+    "mission_engine.py::build_mission_for_user in revise mode uses next(iter(analysis['weak_patterns'])) which is set-ordering dependent (non-deterministic across Python runs for hash-randomized sets). For reproducible mission generation per (user, date), sort weak_patterns before picking.",
+    "routes_missions.py::patch_onboarding deletes today's in_progress mission but leaves associated problem_assignments orphaned (they still reference the deleted mission_id). Consider cascading delete or filtering by non-null mission on arena queries.",
+    "problem_bank.py::PROBLEMS lc-1 (Two Sum) is filed under 'hashing' pattern even though its comment header is in the 'Two Pointers' section — cosmetic only.",
+    "MissionControl.jsx knowledge domain rows use pattern-agnostic default 'fresh' chip for non-DSA subtopics (progress copied from domain score). Once feedback exists for a pattern the DSA subtopic status updates, but non-DSA domains stay 'fresh' forever — acceptable per spec but worth noting."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration3.py",
+    "/app/backend/routes_missions.py",
+    "/app/test_reports/iteration_3.json"
+  ],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100%"},
+  "test_credentials": "admin@prepos.io / Admin@123. Fresh users generated per test: TEST_it3_<hex>@prepos.io / Test@1234 (backend); TEST_ui3_<hex>@prepos.io / Test@1234 (frontend). Retry-until-DSA-focus loop needed because focus_topic is deterministic per (user_id, date).",
+  "seed_data_creation": "Many TEST_it3_* and TEST_ui3_* users generated (each with onboarding, missions, problem_assignments, problem_feedback, revisions, mission_adjustments). No cleanup fixture (isolated fresh users).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run `pytest /app/backend/tests/ -v` for full regression (iter1 backend_test.py + iter2 test_missions.py + iter3 test_iteration3.py). For adaptive-mode tests, we exploit the fact that PATCH /onboarding with daily_study_hours deletes today's in_progress mission → next GET /missions/today regenerates it using recent feedback. To reach 'DSA focus' deterministically, register with self_assessment DSA=1 (others=9) and retry (usually 1-3 attempts). Fixed a bug where GET /dashboard.adjustment returned the OLDEST adjustment for the date; now returns latest via created_at desc sort.",
+  "rca of the issue": "GET /api/dashboard used find_one() on mission_adjustments with no sort, returning insertion-order-oldest match. Because _generate_today_mission inserts a new MissionAdjustment each regeneration (initial 'Standard progression from baseline' → then adaptive 'revise'/'advance'), the UI/tests received the stale first record. Fix: replaced find_one with find().sort('created_at',-1).limit(1). Verified adaptive-revise and adaptive-advance tests now pass and matching reason string surfaces on dashboard.adjustment."
+}
