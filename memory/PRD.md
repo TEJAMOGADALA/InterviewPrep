@@ -81,6 +81,24 @@ Build the production-ready foundation for an AI-powered Interview Operating Syst
 - **New DB collections + indexes**: problem_assignments (by user+mission, user+pattern), problem_feedback (by user+time), mission_adjustments (by user+date), weaknesses (by user+pattern).
 - **Testing**: 15/15 iteration-3 pytest passing + 15/15 iter2 + 15/15 iter1. Frontend Playwright validated task-toggle style, Company Readiness, drill-down, Coding Arena feedback dialog, Practice More, LeetCode links.
 
+## What's been implemented — 2026-02-01 (iteration 5 · Roadmap Curriculum Expansion)
+- **Master knowledge graph** at `/app/backend/data/roadmap_v1.json` expanded to **329 nodes across 7 tracks** — the single source of truth every future feature (Mission Engine, AI Mentor, Analytics, Revision, Mock Interviews) will consume.
+- **Deterministic generator** at `/app/backend/scripts/generate_roadmap.py`; running it twice produces byte-identical JSON. Build-time DAG validator rejects duplicate ids, unknown prereqs and cycles.
+- **Tracks covered**:
+  - DSA (7 modules): Foundations (Arrays, Hashing, Two Pointers, Strings, Bit/Math), Windows & Search, Linear Structures (Stack, Queue, Linked List), Trees & Graphs (BT, BST, Tries, Graph BFS/DFS/Dijkstra/Bellman/MST/Bipartite), Heaps & Priority, DP + Backtracking + Greedy, Advanced (Union-Find, Segment/Fenwick).
+  - Java (7 modules): OOP, Collections (+ ConcurrentHashMap, TreeMap, LinkedHashMap-LRU), Generics/Exceptions, Streams & Lambdas, Concurrency (+ CompletableFuture, JMM, Atomics), JVM (Memory/GC/ClassLoader/JIT), IO & NIO.
+  - LLD (4 modules): Principles (SOLID + DRY/KISS + Cohesion/Coupling), Patterns (Creational, Structural, Behavioral — full set), UML, 11 Case Studies (Parking Lot, Chess, Splitwise, Tic-Tac-Toe, Snake & Ladder, Elevator, ATM, BookMyShow, LRU Cache, Rate Limiter, Notification).
+  - HLD (7 modules): Foundations (CAP, PACELC, Consistency, Load Balancing, Scalability, Napkin Math), Caching & CDN, Databases at Scale, Messaging (Queues, Kafka, RabbitMQ, Pub/Sub), Distributed (Consensus, Consistent Hashing, Microservices, Event Sourcing), Security/Resiliency, 10 Case Studies (URL Shortener, Rate Limiter, News Feed, Chat, Search, Uber, Netflix, Twitter, Instagram, Dropbox, Payments).
+  - OS (3 modules): Processes/Threads (Scheduling, Sync, Deadlocks, IPC), Memory (Paging, Virtual, Segmentation), File Systems & I/O.
+  - DBMS (4 modules): Relational (ACID, Indexing, Normalization, Joins/Optimizer, SQL Deep-Dive), Concurrency (Isolation, Control, Deadlocks), NoSQL (KV, Document, Column, Graph), Scaling (Sharding, Replication).
+  - CN (3 modules): Foundations (OSI, TCP, UDP, HTTP/HTTPS, HTTP/2-3, DNS), Advanced (TLS, LB, CDN, WebSockets), Security (Firewalls, DDoS).
+- **Per-node metadata** now includes: `id`, `label`, `description`, `difficulty`, `estimated_minutes`, `interview_frequency`, `mastery_weight`, `prerequisites` (DAG), `related`, `company_importance` (per 14 companies), `tags`, `track`, `module`, `category`, `level`, `order`, `revision_bucket` (default `green`), `status` (`available`/`locked`), `version`. DSA nodes also carry `pattern`, `problem_ids`, `leetcode_tags`, `neetcode_tags`.
+- **Companies expanded** to 14 for weighted importance: google, microsoft, atlassian, uber, adobe, linkedin, stripe, salesforce, oracle, phonepe, flipkart, paypal, goldman_sachs, zoho.
+- **Backward compat**: every legacy node ID (78 of them) preserved — verified by the testing agent — so all existing user progress, missions, assignments and feedback continue to map correctly.
+- **No changes** to UI, routes, API contracts, Mission Engine, models, or auth. Data-only enhancement.
+- **Backup** at `/app/backend/data/roadmap_v1.backup.json`.
+- **Tests**: 110/110 new roadmap pytest cases + 154/155 full backend suite pass. Test file: `/app/backend/tests/test_roadmap_expansion.py`. Report: `/app/test_reports/iteration_4.json`.
+
 ## What's been implemented — 2026-07-21 (iteration 2 · Mission Engine V1)
 - **Mission Engine V1** — deterministic daily mission per (user, date) driven by onboarding (target companies weighted, position, hours, self_assessment, target date). Focus-topic chosen by urgency + company bias. 2–4 tasks (practice / study / revise), plus up to 2 due revision items appended.
 - **Backend endpoints**: `GET /api/missions/today`, `POST /api/missions/{id}/tasks/{task_id}/complete`, `POST /api/missions/{id}/complete`, `POST /api/missions/{id}/skip`, `GET /api/missions/history`, `GET /api/revisions/queue`, `GET /api/activity`, `GET /api/dashboard` (aggregated), `PATCH /api/onboarding` (recalcs prep days + regenerates today's mission).
@@ -109,7 +127,8 @@ Build the production-ready foundation for an AI-powered Interview Operating Syst
 
 ### P0 — Next drop (Phase 4)
 - **Wire real AI Mentor to Gemini** (using per-user API key from Settings) — AI now has rich adaptive data (feedback, weaknesses, confidence) to consult.
-- **Knowledge Base**: content model so Study tasks deep-link into real concept pages (per-subtopic).
+- **Consume the expanded roadmap metadata** in the Mission Engine, AI Mentor and Analytics — company_importance, mastery_weight and interview_frequency are now available on every node.
+- **Knowledge Base content**: fill in Theory / Examples / Videos / Flashcards placeholders (currently intentionally empty on every node).
 - **LLD/HLD case-study library** + interactive canvas.
 - **Analytics engine**: topic velocity, focus quality, retention curves powered by ProblemFeedback + ActivityEvent.
 
