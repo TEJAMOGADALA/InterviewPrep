@@ -60,6 +60,26 @@ async def _get_onboarding(db, user_id: str) -> Optional[dict]:
     return _clean(await db.onboarding.find_one({"user_id": user_id}))
 
 
+async def _require_onboarding(db, user_id: str) -> dict:
+    """Fetch onboarding or self-heal + raise 409 to force wizard.
+
+    Handles the corner case where a user has `users.onboarding_completed=true`
+    but no matching row in `onboarding` (e.g. after DB cleanup or partial
+    failures). We flip the user flag back so ProtectedRoute redirects to
+    /onboarding on next auth check.
+    """
+    doc = await _get_onboarding(db, user_id)
+    if doc:
+        return doc
+    await db.users.update_one(
+        {"id": user_id}, {"$set": {"onboarding_completed": False}}
+    )
+    raise HTTPException(
+        status_code=409,
+        detail="onboarding_required",
+    )
+
+
 async def _get_knowledge(db, user_id: str) -> list:
     cur = db.knowledge_progress.find({"user_id": user_id}, {"_id": 0})
     return await cur.to_list(length=100)
@@ -118,9 +138,7 @@ async def _attach_problems_to_mission(db, mission: DailyMission) -> None:
 
 
 async def _generate_today_mission(db, user_id: str) -> DailyMission:
-    onboarding = await _get_onboarding(db, user_id)
-    if not onboarding:
-        raise HTTPException(status_code=400, detail="Complete onboarding to generate missions.")
+    onboarding = await _require_onboarding(db, user_id)
     knowledge = await _get_knowledge(db, user_id)
     revisions_due = await _get_due_revisions(db, user_id)
     recent_feedback = await _get_recent_feedback(db, user_id, hours=36)
@@ -367,6 +385,8 @@ async def get_problem(problem_id: str, user=Depends(get_current_user)):
 async def get_coding_arena(user=Depends(get_current_user)):
     """Returns today's mission problems + user's active pattern + recent history."""
     from server import db
+    # Self-heal onboarding-required inconsistency before touching any collection.
+    await _require_onboarding(db, user["id"])
     today = today_date_str()
 
     # Today's mission
@@ -659,9 +679,7 @@ async def get_dashboard(user=Depends(get_current_user)):
     from server import db
     today = today_date_str()
 
-    onboarding = await _get_onboarding(db, user["id"])
-    if not onboarding:
-        raise HTTPException(status_code=400, detail="Complete onboarding first.")
+    onboarding = await _require_onboarding(db, user["id"])
 
     mission_doc = await db.daily_missions.find_one({"user_id": user["id"], "date": today})
     if not mission_doc:

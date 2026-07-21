@@ -8,14 +8,28 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Auto-refresh on 401
+// Auto-refresh on 401 + self-heal onboarding-required redirects
 let refreshing = null;
 api.interceptors.response.use(
   (r) => r,
   async (error) => {
     const original = error.config;
+    const status = error.response?.status;
+    const detail = error.response?.data?.detail;
+
+    // Self-heal: if backend says onboarding_required, force user to wizard.
     if (
-      error.response?.status === 401 &&
+      status === 409 &&
+      detail === 'onboarding_required' &&
+      typeof window !== 'undefined' &&
+      window.location.pathname !== '/onboarding'
+    ) {
+      window.location.replace('/onboarding');
+      return Promise.reject(error);
+    }
+
+    if (
+      status === 401 &&
       !original._retry &&
       !original.url?.endsWith('/auth/login') &&
       !original.url?.endsWith('/auth/refresh') &&
