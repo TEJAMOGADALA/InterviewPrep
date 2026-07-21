@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 4 (roadmap expansion to 329 nodes / 7 tracks / 14 companies) validated as data-only change. New test file /app/backend/tests/test_roadmap_expansion.py — 110/110 pytest cases pass covering: (a) GET /api/roadmap returns tracks=7 and companies=14 including paypal, goldman_sachs, zoho; (b) tree walk via nested `children` yields 329 unique node ids (>=300 threshold), 3-level-deep nesting confirmed; (c) all 78 legacy learning-node IDs (dsa.*, java.*, lld.*, hld.*, os.*, dbms.*, cn.*) resolve via GET /api/roadmap/nodes/{id} with HTTP 200 and non-empty labels; (d) all 18 newly-added learning-node IDs (dsa.foundations.strings.anagram, dsa.trees.tries.implement, dsa.advanced.union_find.core, java.collections.concurrent_map, java.concurrency.completable, java.jvm.classloader, lld.patterns.structural.decorator, lld.cases.book_my_show, hld.db.sharding, hld.cases.uber, hld.cases.payment, os.processes.ipc, dbms.nosql.kv, cn.foundations.http2_http3, cn.advanced.tls_ssl, etc.) resolve to 200 with correct id; (e) prerequisite DAG validated live — for dsa.windows.sliding_window, hld.messaging.kafka, dsa.trees.graphs.mst, every id in the returned `prerequisites` array resolves to 200; (f) regressions clean — GET /api/missions/today 200, POST /api/missions/regenerate ok, GET /api/problems/patterns returns patterns list, GET /api/problems/lc-53 200, POST /api/problems/lc-53/feedback <500, GET /api/profile 200, GET /api/onboarding 200, /api/auth/me 200 with admin. Full backend suite: 154/155 pass (one pre-existing flaky test in test_iteration3::TestAdaptiveRevise noted in iter3 — passes on rerun 3/3, tied to set-ordering non-determinism in mission_engine.weak_patterns pick; NOT caused by roadmap expansion).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "test_iteration3.TestAdaptiveRevise::test_revise_mode_inserts_prerequisites", "issue": "Intermittent failure (~1 in ~5 runs). Pre-existing (already flagged in iteration_3.json) — mission_engine.py uses next(iter(analysis['weak_patterns'])) which is Python hash-randomization dependent. Not a roadmap-expansion regression; retest passes 3/3."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_roadmap_expansion.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [
+    "(Optional, pre-existing) Sort weak_patterns before pick in mission_engine.build_mission_for_user to make adaptive revise deterministic and remove test flakiness."
+  ],
+  "critical_code_review_comments": [
+    "routes_roadmap.py::get_full_roadmap hydrates the entire tree (329 nodes) with recursive rollups and _load_user_progress on every request — payload is ~330 nodes deep with progress objects on each. Consider caching per (user, roadmap_version) with short TTL or lazy children (send only top 2 levels + fetch descendants on demand) for scale.",
+    "generate_roadmap.py DAG validation is correctly gating build-time but at runtime routes_roadmap._rollup_from_progress recursion has no cycle guard; if a future manual edit slips a cycle past the generator, request will overflow. Add a visited set to recursion.",
+    "roadmap.py get_roadmap loads JSON at every call site — verify LRU/module-cache is in place (13k lines JSON parse is non-trivial per request).",
+    "companies list is hardcoded at 14 in JSON stats; if a new company is appended without updating downstream mission_engine.company_readiness weight table, dashboard will silently drop it. Consider deriving companies solely from roadmap.tree()['companies']."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_roadmap_expansion.py",
+    "/app/test_reports/iteration_4.json"
+  ],
+  "success_rate": {"backend": "100% (110/110 new; 154/155 full suite, 1 pre-existing flaky)", "frontend": "not tested (backend-only per request)"},
+  "test_credentials": "admin@prepos.io / Admin@123 (from /app/memory/test_credentials.md). Fresh TEST_rm_<hex>@prepos.io users created per module.",
+  "seed_data_creation": "One TEST_rm_* user per pytest module invocation, with onboarding completed (target=Google, dsa/java/lld/hld/os/dbms/cn all=5). No cleanup fixture.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Roadmap now: 7 tracks, 14 companies, 329 nodes. Public tree endpoint returns nested `children` (not `modules`/`topics`) because routes_roadmap.py transforms JSON via roadmap.py adapters. Legacy AND new learning-node IDs resolve. Regressions clean. If iteration_3 adaptive-revise test flakes, rerun once — it's set-ordering. Run all backend tests: `pytest /app/backend/tests/ -v`.",
+  "rca of the issue": "N/A — no blocking issues found. The one flaky test is pre-existing and documented in iter3."
+}
