@@ -81,6 +81,38 @@ Build the production-ready foundation for an AI-powered Interview Operating Syst
 - **New DB collections + indexes**: problem_assignments (by user+mission, user+pattern), problem_feedback (by user+time), mission_adjustments (by user+date), weaknesses (by user+pattern).
 - **Testing**: 15/15 iteration-3 pytest passing + 15/15 iter2 + 15/15 iter1. Frontend Playwright validated task-toggle style, Company Readiness, drill-down, Coding Arena feedback dialog, Practice More, LeetCode links.
 
+## What's been implemented — 2026-02-01 (iteration 6 · LLD/HLD Deep Expansion)
+- **Roadmap grew 329 → 1043 nodes** — still data-only, still zero UI / API / model changes.
+- **LLD** (13 modules, 212 nodes):
+  - **Design Patterns** — all 23 GoF patterns now materialised as subtopics under `lld.patterns.{creational|structural|behavioral}`. Newly added: **Flyweight** (structural) and **Mediator / Memento / Interpreter** (behavioral). Every pattern carries the 5 mandated learning-nodes: `.overview`, `.uml`, `.use_cases`, `.java`, `.interview`.
+  - **9 new categorized case-study modules**:
+    - `lld.cat.caching` — LRU, LFU, TTL
+    - `lld.cat.booking` — Hotel, Flight, Train, Restaurant
+    - `lld.cat.commerce` — Shopping Cart, Inventory, Warehouse, Coupon, Gift Card
+    - `lld.cat.communication` — WhatsApp, Chat Server, Email, Notification Queue
+    - `lld.cat.scheduling` — Cron, Task Scheduler, Job Queue
+    - `lld.cat.banking` — Bank Account, Digital Wallet, UPI, Transaction Engine
+    - `lld.cat.games` — Sudoku, Minesweeper, Blackjack, UNO
+    - `lld.cat.smart` — Traffic Signal, Vending Machine, Coffee Machine, Printer, Library, Hospital
+    - `lld.cat.os_inspired` — Memory Allocator, Thread Pool, Connection Pool, File System
+  - Original `lld.cases` (Parking Lot, Chess, Splitwise, etc.) preserved verbatim.
+- **HLD** (17 modules, 601 nodes):
+  - **Existing 11 case studies retrofitted** — `hld.cases.url_shortener`, `hld.cases.rate_limiter`, `hld.cases.news_feed`, `hld.cases.chat`, `hld.cases.search`, `hld.cases.uber`, `hld.cases.netflix`, `hld.cases.twitter`, `hld.cases.instagram`, `hld.cases.dropbox`, `hld.cases.payment` — now each expose the 10 mandated subtopics: `.problem`, `.func_req`, `.non_func_req`, `.capacity`, `.apis`, `.db`, `.components`, `.scaling`, `.bottlenecks`, `.interview`.
+  - **10 new categorized case-study modules**, each case with the same 10-part breakdown:
+    - `hld.cat.storage` — Google Drive, Dropbox deep-dive, S3
+    - `hld.cat.messaging` — Slack, Discord, MS Teams, Kafka
+    - `hld.cat.search` — Elasticsearch, Google Search, Autocomplete
+    - `hld.cat.streaming` — Spotify, Netflix deep-dive, Live Streaming, Zoom
+    - `hld.cat.finance` — UPI, Wallet, Payment Gateway, Ledger
+    - `hld.cat.infra` — API Gateway, CDN, Distributed Cache, Logging, Monitoring, Metrics
+    - `hld.cat.social` — LinkedIn, Facebook Feed, Instagram Stories, Twitter Timeline
+    - `hld.cat.ecommerce` — Amazon Cart, Inventory, Recommendation, Order Service
+    - `hld.cat.maps` — Google Maps Nearby, Uber Dispatch
+    - `hld.cat.misc` — GitHub, Google Docs, Collaborative Editor, Web Crawler, Online Compiler
+- **Every legacy node ID preserved** — verified end-to-end by the backend testing agent, so all existing user progress remains valid.
+- **Generator helpers added** (`pattern_subtopic()`, `lld_case_topic()`, `hld_case_topic()`) — new case studies and patterns can now be defined in a single line, keeping the generator maintainable.
+- **Tests**: 149/149 new roadmap-LLD-HLD pytest cases + 303/304 full backend suite pass (the 1 flaky is the same pre-existing iter3 test — unrelated to this change). Report: `/app/test_reports/iteration_5.json`. Test file: `/app/backend/tests/test_roadmap_lld_hld_expansion.py`.
+
 ## What's been implemented — 2026-02-01 (iteration 5 · Roadmap Curriculum Expansion)
 - **Master knowledge graph** at `/app/backend/data/roadmap_v1.json` expanded to **329 nodes across 7 tracks** — the single source of truth every future feature (Mission Engine, AI Mentor, Analytics, Revision, Mock Interviews) will consume.
 - **Deterministic generator** at `/app/backend/scripts/generate_roadmap.py`; running it twice produces byte-identical JSON. Build-time DAG validator rejects duplicate ids, unknown prereqs and cycles.
