@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
   ChevronRight, Loader2, Home, ExternalLink, Clock, Save, Star,
-  Sparkles, BookOpen, MessageSquare, Zap, Bookmark, Flag, ArrowLeft,
+  MessageSquare, Zap, ArrowLeft,
 } from 'lucide-react';
 import { GlassCard } from '@/components/common/GlassCard';
 import { Textarea } from '@/components/ui/textarea';
@@ -17,22 +17,13 @@ import { cn } from '@/lib/utils';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import { StatusBadge } from '@/components/progress/StatusBadge';
 import { NodeActions } from '@/components/progress/NodeActions';
+import { AIContentTabs } from '@/components/knowledge/AIContentTabs';
 
 const BUCKET_LABEL = {
   green:  { label: 'Fresh',   cls: 'text-emerald-300 border-emerald-400/30 bg-emerald-400/10' },
   yellow: { label: 'Review',  cls: 'text-amber-300 border-amber-400/30 bg-amber-400/10' },
   red:    { label: 'Weak',    cls: 'text-rose-300 border-rose-400/30 bg-rose-400/10' },
 };
-
-const RESOURCE_TABS = [
-  { key: 'theory',     label: 'Theory',           icon: BookOpen },
-  { key: 'examples',   label: 'Examples',         icon: Sparkles },
-  { key: 'tips',       label: 'Interview Tips',   icon: Flag },
-  { key: 'mistakes',   label: 'Common Mistakes',  icon: Zap },
-  { key: 'articles',   label: 'Articles',         icon: BookOpen },
-  { key: 'videos',     label: 'Videos',           icon: Sparkles },
-  { key: 'flashcards', label: 'Flashcards',       icon: Bookmark },
-];
 
 function starLine(count) {
   return '★★★★★'.slice(0, count) + '☆☆☆☆☆'.slice(0, 5 - count);
@@ -47,7 +38,6 @@ export default function DeepTopicPage() {
   const [savingNotes, setSavingNotes] = useState(false);
   const [confidence, setConfidence] = useState([0]);
   const [savingConf, setSavingConf] = useState(false);
-  const [activeTab, setActiveTab] = useState('theory');
 
   const load = async () => {
     setLoading(true);
@@ -297,38 +287,7 @@ export default function DeepTopicPage() {
       </div>
 
       {/* Resources tabs */}
-      <GlassCard className="p-6" data-testid="topic-resources">
-        <div className="flex flex-wrap gap-2 mb-4">
-          {RESOURCE_TABS.map((t) => {
-            const Icon = t.icon;
-            const active = activeTab === t.key;
-            return (
-              <button
-                key={t.key} onClick={() => setActiveTab(t.key)}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs transition-colors',
-                  active
-                    ? 'border-primary/40 bg-primary/10 text-primary'
-                    : 'border-white/[0.06] bg-white/[0.02] text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
-        <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.015] p-8 text-center">
-          <Sparkles className="h-5 w-5 text-muted-foreground mx-auto mb-2" />
-          <p className="text-sm text-muted-foreground">
-            {RESOURCE_TABS.find((t) => t.key === activeTab)?.label} content will be generated when
-            the AI Mentor (Phase 4) plugs into this node.
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground/70 font-mono">
-            Placeholder · roadmap-driven, ready for content.
-          </p>
-        </div>
-      </GlassCard>
+      <AIContentTabs nodeId={node.id} />
 
       {/* Linked problems */}
       {problems && problems.length > 0 && (

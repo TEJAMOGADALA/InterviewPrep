@@ -10,6 +10,8 @@ from models import (
 )
 from roadmap import get_roadmap, CURRENT_VERSION
 from problem_bank import problem_by_id
+from ai_service import AIProviderError
+from knowledge_generation import ensure_content, read_cache, clear_cache
 
 router = APIRouter(prefix="/api/roadmap", tags=["roadmap"])
 
@@ -624,3 +626,94 @@ async def get_version(user=Depends(get_current_user)):
     from server import db
     version = await _ensure_user_version(db, user["id"])
     return {"user_version": version, "current_version": CURRENT_VERSION}
+
+
+# ============ AI-generated Knowledge Base content ============
+
+def _content_view(doc: Optional[dict]) -> dict:
+    """Shape a cached KnowledgeContent document for API consumers.
+
+    Missing sections come back as empty lists / None so the frontend can render
+    without null-guards. `available` is a convenience flag for lazy UIs."""
+    if not doc:
+        return {
+            "available": False,
+            "theory": None,
+            "examples": [],
+            "interview_tips": [],
+            "common_mistakes": [],
+            "flashcards": [],
+            "related_topics": [],
+            "prerequisites": [],
+            "provider": None, "model_name": None,
+            "generated_at": None, "updated_at": None,
+        }
+    return {
+        "available": bool(doc.get("theory")),
+        "theory": doc.get("theory"),
+        "examples": doc.get("examples") or [],
+        "interview_tips": doc.get("interview_tips") or [],
+        "common_mistakes": doc.get("common_mistakes") or [],
+        "flashcards": doc.get("flashcards") or [],
+        "related_topics": doc.get("related_topics") or [],
+        "prerequisites": doc.get("prerequisites") or [],
+        "provider": doc.get("provider"),
+        "model_name": doc.get("model_name"),
+        "generated_at": doc.get("generated_at"),
+        "updated_at": doc.get("updated_at"),
+    }
+
+
+def _ai_error_to_http(err: AIProviderError) -> HTTPException:
+    return HTTPException(
+        status_code=err.status_code or 500,
+        detail={"error": err.kind, "message": str(err)},
+    )
+
+
+@router.get("/nodes/{node_id}/content")
+async def get_node_content(node_id: str, user=Depends(get_current_user)):
+    """Return cached AI content for a node — never triggers generation.
+    Frontend calls this on tab open and only prompts the user to generate
+    when `available` is false."""
+    from server import db
+    version = await _ensure_user_version(db, user["id"])
+    if not get_roadmap(version).get(node_id):
+        raise HTTPException(status_code=404, detail="Node not found")
+    doc = await read_cache(db, node_id=node_id, roadmap_version=version)
+    return _content_view(doc)
+
+
+@router.post("/nodes/{node_id}/content/generate")
+async def generate_node_content(node_id: str, user=Depends(get_current_user)):
+    """Generate + cache AI content for a node. Idempotent on a cache hit
+    (returns the existing doc without a new Gemini call)."""
+    from server import db
+    version = await _ensure_user_version(db, user["id"])
+    if not get_roadmap(version).get(node_id):
+        raise HTTPException(status_code=404, detail="Node not found")
+    try:
+        doc = await ensure_content(
+            db, node_id=node_id, roadmap_version=version, user_id=user["id"], force=False,
+        )
+    except AIProviderError as e:
+        raise _ai_error_to_http(e)
+    return _content_view(doc)
+
+
+@router.post("/nodes/{node_id}/content/regenerate")
+async def regenerate_node_content(node_id: str, user=Depends(get_current_user)):
+    """Explicit re-generation. Clears the cache row and calls Gemini again."""
+    from server import db
+    version = await _ensure_user_version(db, user["id"])
+    if not get_roadmap(version).get(node_id):
+        raise HTTPException(status_code=404, detail="Node not found")
+    try:
+        await clear_cache(db, node_id=node_id, roadmap_version=version)
+        doc = await ensure_content(
+            db, node_id=node_id, roadmap_version=version, user_id=user["id"], force=True,
+        )
+    except AIProviderError as e:
+        raise _ai_error_to_http(e)
+    return _content_view(doc)
+

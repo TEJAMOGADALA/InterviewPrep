@@ -1,0 +1,21 @@
+{
+  "summary": "Iteration 8 AI Knowledge Base — full backend + frontend validation. 22/22 pytest tests pass covering read-only cache, unknown-node 404, missing_key 400, happy-path Gemini generation via emergentintegrations universal key, cache-hit idempotency (generated_at unchanged), regenerate updates timestamp, related/prereq id resolution, second-node (Kadane) proves node-agnostic prompt, and full regression on roadmap CRUD endpoints. Frontend smoke: /app/knowledge-base/nodes/hld.foundations.cap renders ai-content with all 9 tabs, articles shows 'stub' label, theory renders immediately from global cache, flashcards tap-to-reveal works. Missing-key path on fresh user shows ai-content-error + ai-content-open-settings link.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration8_ai_kb.py",
+    "/app/test_reports/pytest/iter8_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "knowledge_generation.py docstring says 'Pull from user_settings' but code correctly reads db.settings — cosmetic docstring drift only.",
+    "ai_service._classify buckets 'permission denied/403' as invalid_key (401). Fine but semantically 403 would be more accurate; harmless."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration8_ai_kb.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Fresh users created inline per test run. Emergent universal Gemini key sk-emergent-aEa152aE36c979b48F patched into ai_config.api_key for happy path.",
+  "seed_data_creation": "Global knowledge_content cache rows for hld.foundations.cap and dsa.foundations.arrays.kadane are now populated (intentional — shared cache).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test file at /app/backend/tests/test_iteration8_ai_kb.py runs under `-n 0` (serial) because it hits real Gemini and depends on shared cache. Register uses field 'name' (not full_name). Onboarding schema requires current_position, daily_study_hours, self_assessment, interview_target_date. Iteration 8 knowledge-base endpoints are fully wired and stable."
+}

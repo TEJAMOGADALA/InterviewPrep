@@ -293,3 +293,31 @@ class KnowledgeStatusUpdate(BaseModel):
 
 class KnowledgeAttemptUpdate(BaseModel):
     actual_minutes: Optional[int] = Field(default=None, ge=0, le=6000)
+
+
+# ============ AI-generated knowledge content ============
+
+class KnowledgeContent(BaseModel):
+    """Cached AI-generated content for a single roadmap node.
+
+    Cache key = (node_id, roadmap_version). Global (not per-user) — every
+    learner sees the same generated content. That way the first user's cost
+    benefits everyone; regenerate is opt-in.
+    """
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    node_id: str
+    roadmap_version: str = "v1"
+    provider: str = "gemini"
+    model_name: str = "gemini-2.5-flash"
+    # The generated payload — one nested dict per Section.
+    # Shape is validated by prompt_builder.parse_content().
+    theory: Optional[dict] = None
+    examples: Optional[List[dict]] = None
+    interview_tips: Optional[List[str]] = None
+    common_mistakes: Optional[List[dict]] = None
+    flashcards: Optional[List[dict]] = None
+    related_topics: Optional[List[dict]] = None
+    prerequisites: Optional[List[dict]] = None
+    generated_by: Optional[str] = None  # user_id of the first requester
+    generated_at: str = Field(default_factory=_now_iso)
+    updated_at: str = Field(default_factory=_now_iso)

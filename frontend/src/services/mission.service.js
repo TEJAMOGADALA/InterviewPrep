@@ -60,4 +60,8 @@ export const roadmapService = {
   recordAttempt: (nodeId, actualMinutes) =>
     api.post(`/roadmap/nodes/${nodeId}/attempt`, actualMinutes ? { actual_minutes: actualMinutes } : {}).then((r) => r.data),
   version: () => api.get('/roadmap/version').then((r) => r.data),
+  // AI-generated knowledge content.
+  getContent: (nodeId) => api.get(`/roadmap/nodes/${nodeId}/content`).then((r) => r.data),
+  generateContent: (nodeId) => api.post(`/roadmap/nodes/${nodeId}/content/generate`).then((r) => r.data),
+  regenerateContent: (nodeId) => api.post(`/roadmap/nodes/${nodeId}/content/regenerate`).then((r) => r.data),
 };
