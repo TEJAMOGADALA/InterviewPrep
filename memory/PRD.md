@@ -53,6 +53,22 @@ Build the production-ready foundation for an AI-powered Interview Operating Syst
 - Profile page with target companies, target date, skill baseline.
 - Feature flag architecture, scalable, no business logic yet.
 
+## What's been implemented — 2026-07-21 (iteration 3 · Adaptive Engine + Coding Arena)
+- **Curated Problem Bank** (`/app/backend/problem_bank.py`) — 87 problems across 16 patterns with real LeetCode URLs. PATTERN_TO_DOMAIN + PATTERN_PREREQUISITES root-cause map.
+- **Mission Engine V2** (adaptive) — analyses last 36h of feedback (confidence, hints, time, could_not_solve) and picks mode:
+  - `revise` → force weakest pattern focus + insert prerequisite revisions (e.g. Heap failure → auto-insert Comparator & Comparable revision).
+  - `advance` → progress to harder DSA patterns at hard difficulty.
+  - `continue` → standard baseline progression. Extra practice yesterday nudges hours up.
+- **DSA practice tasks are backed by real problem assignments** on mission generation. Non-DSA missions unchanged.
+- **Task toggle** — clicking a task toggles both directions; completed = green background + green check + NO strike-through. Un-toggling reverts mission status if it was completed. Backwards-compat `/complete` endpoint delegates to `/toggle`.
+- **Coding Arena** — full page rebuild wired to `/api/coding-arena`: today's pattern header, mission recap, problem cards (title/difficulty/pattern/time/LeetCode link/feedback state), `+ Practice More` button pulls next unseen problem, feedback modal (difficulty/solved-status/confidence/time/notes) → persists ProblemFeedback + knowledge gain + confidence-adjusted revision + WeaknessRecord on low signals.
+- **Spaced repetition V2** — 1d/3d/7d/14d/30d/60d ladder × confidence modifier (0.4× for conf≤3, 1.5× for conf≥9).
+- **Knowledge Progress drill-down** — dashboard rows expand to reveal per-subtopic progress, problems solved, avg confidence, revision status (fresh/due/mastered). DSA drills into all 16 patterns.
+- **Company Readiness** — 12 companies with per-company weighted formulas (Google=DSA-heavy, Oracle=DBMS+Java, Stripe=HLD+Backend, etc.). Dashboard widget shows target companies first.
+- **Recent Activity** capped at 5 items on dashboard; full history at `/app/notifications`.
+- **New DB collections + indexes**: problem_assignments (by user+mission, user+pattern), problem_feedback (by user+time), mission_adjustments (by user+date), weaknesses (by user+pattern).
+- **Testing**: 15/15 iteration-3 pytest passing + 15/15 iter2 + 15/15 iter1. Frontend Playwright validated task-toggle style, Company Readiness, drill-down, Coding Arena feedback dialog, Practice More, LeetCode links.
+
 ## What's been implemented — 2026-07-21 (iteration 2 · Mission Engine V1)
 - **Mission Engine V1** — deterministic daily mission per (user, date) driven by onboarding (target companies weighted, position, hours, self_assessment, target date). Focus-topic chosen by urgency + company bias. 2–4 tasks (practice / study / revise), plus up to 2 due revision items appended.
 - **Backend endpoints**: `GET /api/missions/today`, `POST /api/missions/{id}/tasks/{task_id}/complete`, `POST /api/missions/{id}/complete`, `POST /api/missions/{id}/skip`, `GET /api/missions/history`, `GET /api/revisions/queue`, `GET /api/activity`, `GET /api/dashboard` (aggregated), `PATCH /api/onboarding` (recalcs prep days + regenerates today's mission).
@@ -79,25 +95,25 @@ Build the production-ready foundation for an AI-powered Interview Operating Syst
 
 ## Prioritized backlog
 
-### P0 — Next drop (Phase 3)
-- Wire real AI Mentor to Gemini (using per-user API key from Settings).
-- Coding Arena: problem model + submission runner + integrate practice tasks with real problem IDs.
-- Global Search backend index (topics / missions / notes).
+### P0 — Next drop (Phase 4)
+- **Wire real AI Mentor to Gemini** (using per-user API key from Settings) — AI now has rich adaptive data (feedback, weaknesses, confidence) to consult.
+- **Knowledge Base**: content model so Study tasks deep-link into real concept pages (per-subtopic).
+- **LLD/HLD case-study library** + interactive canvas.
+- **Analytics engine**: topic velocity, focus quality, retention curves powered by ProblemFeedback + ActivityEvent.
 
 ### P1
-- Knowledge Base content model + editor (link Study tasks to actual concept pages).
-- LLD / HLD case-study library + interactive canvas.
-- Contest/mock interview tracker.
-- Analytics events pipeline (topic velocity, focus quality, streak retention).
-- Mission history detail page + revision queue drill-in view.
+- Mock interview flow (voice / text) using feedback signals.
+- Weekly report email combining streak, readiness delta, top weak patterns.
+- Cross-user leaderboards on target companies (opt-in social layer).
+- Contest tracker integration.
 
 ### P2
-- Mock interview flow (voice / text).
-- Weekly report email.
-- Real push notifications (browser).
-- Theme = system / light polish.
-- Convert frontend to Vite+TypeScript if user still wants it (folder structure is ready).
-- Explicit revision_id linkage on `revise` MissionTasks for multi-revision-per-topic correctness.
+- Real push notifications.
+- Light theme polish.
+- Convert frontend to Vite + TypeScript (folder structure ready).
+- Upsert semantics for problem feedback (currently keeps append history — good for audit but noisy).
+- Cascade cleanup of orphaned problem_assignments on mission delete.
+- Decrement knowledge on task un-toggle (currently keeps gain — audit-friendly, but may overstate progress).
 
 ## Testing
 - Backend: `pytest /app/backend/tests/backend_test.py -v`

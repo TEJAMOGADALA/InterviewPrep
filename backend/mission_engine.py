@@ -241,9 +241,9 @@ def build_mission_for_user(
     analysis = analyze_recent_feedback(recent_feedback or [])
     mode = determine_mode(analysis)
 
-    # Choose focus: if in revise mode, force weakest pattern
+    # Choose focus: if in revise mode, force weakest pattern (sorted for determinism)
     if mode == "revise" and analysis["weak_patterns"]:
-        weak_pattern = next(iter(analysis["weak_patterns"]))
+        weak_pattern = sorted(analysis["weak_patterns"])[0]
         domain, subtopic = PATTERN_TO_DOMAIN.get(weak_pattern, ("dsa", "Arrays"))
         focus_topic = domain
         base_difficulty = "easy"
@@ -281,7 +281,7 @@ def build_mission_for_user(
     # -------- Root cause: prerequisite revisions (only in revise mode) --------
     if mode == "revise" and analysis["weak_patterns"]:
         seen = set()
-        for weak_p in analysis["weak_patterns"]:
+        for weak_p in sorted(analysis["weak_patterns"]):  # deterministic order
             for (pre_domain, pre_sub) in prerequisite_revisions_for(weak_p):
                 key = (pre_domain, pre_sub)
                 if key in seen:
