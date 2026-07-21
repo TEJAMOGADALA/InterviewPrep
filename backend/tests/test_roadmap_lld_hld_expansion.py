@@ -153,7 +153,7 @@ class TestRoadmapTree:
         r = user_session.get(f"{BASE_URL}/api/roadmap", timeout=30)
         assert r.status_code == 200, r.text
         data = r.json()
-        assert len(data["tracks"]) == 7
+        assert len(data["tracks"]) == 10
         # Build map trackId -> module count (children of track)
         for t in data["tracks"]:
             tid = t.get("id")

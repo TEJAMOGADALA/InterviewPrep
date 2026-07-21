@@ -263,13 +263,18 @@ class KnowledgeNode(BaseModel):
     user_id: str
     roadmap_version: str = "v1"
     node_id: str
-    status: str = "available"  # locked | available | in_progress | completed | mastered
+    status: str = "not_started"  # not_started | in_progress | completed | mastered | revision_due
     confidence: float = 0.0  # 0-10
     weakness_score: float = 0.0  # 0-100 (higher = weaker)
     revision_bucket: str = "green"  # green | yellow | red
     mastery_percentage: float = 0.0  # 0-100
     last_revision: Optional[str] = None
     next_revision: Optional[str] = None
+    completion_date: Optional[str] = None
+    attempts: int = 0
+    actual_solve_minutes: int = 0
+    bookmarked: bool = False
+    favorite: bool = False
     notes: Optional[str] = None
     updated_at: str = Field(default_factory=_now_iso)
 
@@ -280,3 +285,11 @@ class KnowledgeNoteUpdate(BaseModel):
 
 class KnowledgeConfidenceUpdate(BaseModel):
     confidence: float = Field(ge=0, le=10)
+
+
+class KnowledgeStatusUpdate(BaseModel):
+    status: str = Field(pattern="^(not_started|in_progress|completed|mastered|revision_due)$")
+
+
+class KnowledgeAttemptUpdate(BaseModel):
+    actual_minutes: Optional[int] = Field(default=None, ge=0, le=6000)

@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 7 (progress tracking + 3 new roadmap tracks: projects/behavioral/resume) verified end-to-end. Backend: created /app/backend/tests/test_iteration7_progress.py (33 tests, all pass). Full suite: 336/337 pass (1 pre-existing flaky test in test_iteration3::TestAdaptiveRevise — documented since iter3/4/5, unrelated). Verified: (a) GET /api/roadmap returns 10 tracks, 14 companies, walking children yields >=1000 unique nodes. (b) All 15 sampled new node ids (projects.*, behavioral.*, resume.*) resolve 200 with new expanded progress block. (c) GET /api/roadmap/summary for a fresh user returns 10 tracks each with completion_pct=0/total_topics>0, overall.readiness=0, all counts zero. (d) POST /status with 'completed' stamps completion_date + next_revision (3 days out) + mastery=80; /status accepts 'revision_due'; invalid status → 422; unknown node → 404. (e) POST /bookmark toggles false↔true, persists via GET, and appears in /summary counts.bookmarked. (f) POST /favorite same behaviour; counts.favorite reflects. (g) POST /attempt with {actual_minutes:18} → attempts=1/actual_solve_minutes=18; second call without actual_minutes → attempts=2, minutes unchanged (verified $inc conditional); first call seeded status=in_progress via $setOnInsert. (h) After completing kadane, /summary today.completed_count>=1 and today.completed_ids includes it; overall.completed_topics incremented; /roadmap/progress dsa module rollup shows completed_topics>=1 and mastery_percentage>0 (rollup engine works). (i) Legacy IDs (dsa.foundations.arrays.kadane, java.collections.hashmap, lld.cases.parking_lot, hld.cases.url_shortener) all 200 with all new fields present. (j) /roadmap/progress has expected module counts: dsa=7, projects=3, behavioral=4, resume=3. (k) /api/missions/today, /api/profile, /api/auth/me, /api/onboarding all 200. Frontend (Playwright): admin login → onboarded via API → /app/knowledge-base — filter-chips visible with all 5 status chips + 3 difficulty chips + company chips (google, microsoft verified); clicking filter-status-bookmarked flips aria-pressed=true. Deep page for dsa.foundations.arrays.kadane: node-bookmark-*, node-favorite-*, topic-mark-in_progress/completed/mastered, topic-record-attempt all present; bookmark toggle animates true→false correctly. Mission Control /app/mission-control renders interview-progress-strip with all 6 tiles (overall, dsa, lld, hld, behavioral, today) — each shows % or count without JS errors. Fixed 2 pre-existing tests (test_roadmap_expansion.py, test_roadmap_lld_hld_expansion.py) that hardcoded len(tracks)==7 → updated to 10 (expected after new tracks added).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "test_iteration3.TestAdaptiveRevise::test_revise_mode_inserts_prerequisites", "issue": "Pre-existing flaky test (documented in iter3/4/5). mission_engine.py uses next(iter(analysis['weak_patterns'])) — set ordering non-deterministic. Not caused by iteration 7."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "FilterChips", "issue": "data-testid='filter-chips-clear' not rendered — the request explicitly listed this testid. Chip toggle-off (clicking active chip again) works, but a dedicated 'Clear all filters' button with this testid is absent.", "selector": "[data-testid=\"filter-chips-clear\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "MissionControl / interview-progress-strip", "issues": ["DSA tile shows raw '1' then '%' on new line for 1/95 = 1.05% — cosmetic layout: number and % symbol are visually separated but readable. Consider rounding label as '1%' inline."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration7_progress.py",
+    "/app/test_reports/pytest/iter7_results.xml"
+  ],
+  "action_items": [
+    "(Optional/Low) Add a 'Clear filters' button in FilterChips with data-testid='filter-chips-clear' (was in the spec's testid list).",
+    "(Optional) Sort weak_patterns deterministically before pick in mission_engine.build_mission_for_user to eliminate iter3 flaky test."
+  ],
+  "critical_code_review_comments": [
+    "routes_roadmap._rollup_from_progress still has no cycle guard (visited-set); a manual JSON edit slipping past the build-time DAG validator would infinite-recurse.",
+    "GET /api/roadmap now hydrates 1085 nodes with per-user rollups per call — add per-(user, version) LRU cache with short TTL to avoid CPU pressure.",
+    "roadmap JSON should be module-cached (functools.lru_cache) at 1085 nodes / 13k+ lines; parsing per-request is meaningful CPU.",
+    "In _shape_node the `mastery_weight` is exposed on every node but is only meaningful at track level — either drop from leaves or add explicit doc.",
+    "record_attempt: $setOnInsert only fires on true insert; if a row already exists with status='not_started', first attempt won't flip it to in_progress. Consider $set with $cond, or an explicit second update step for existing rows in not_started."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration7_progress.py",
+    "/app/backend/tests/test_roadmap_expansion.py",
+    "/app/backend/tests/test_roadmap_lld_hld_expansion.py"
+  ],
+  "success_rate": {"backend": "100% (33/33 new; 336/337 full suite, 1 pre-existing flaky)", "frontend": "95% (all 6 progress tiles + all chips + all deep-page actions render; only missing filter-chips-clear testid)"},
+  "test_credentials": "admin@prepos.io / Admin@123. Fresh TEST_iter7_<hex>@prepos.io users created per test module.",
+  "seed_data_creation": "One TEST_iter7_* user per pytest module; onboarding completed (target=Google, self_assessment 4-5). Admin was onboarded via /api/onboarding for the Playwright run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Roadmap iter7: 10 tracks (dsa/java/lld/hld/operating_systems/dbms/computer_networks/projects/behavioral/resume), 14 companies, >=1000 nodes. Register endpoint field is 'name' (not full_name). Onboarding schema: current_position, target_companies[], daily_study_hours, interview_target_date, self_assessment{dsa,java,lld,hld,os,dbms,cn} as ints 1-5. New endpoints: POST /api/roadmap/nodes/{id}/status|bookmark|favorite|attempt, GET /api/roadmap/summary. Attempt endpoint's $inc for actual_solve_minutes only fires when actual_minutes supplied. Real leaf ids for testing: dsa.foundations.arrays.{traversal, kadane, prefix_sum, diff_array, matrix}. filter-chips-clear testid is currently missing.",
+  "rca of the issue": "N/A — no blocking issues found."
+}

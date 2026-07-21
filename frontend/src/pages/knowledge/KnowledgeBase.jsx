@@ -3,25 +3,20 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   BookOpen, Loader2, ChevronRight, Search, Layers, Cpu,
-  Coffee, Network, Database, Wifi, Code2,
+  Coffee, Network, Database, Wifi, Code2, Hammer, MessageCircle, FileText,
 } from 'lucide-react';
 import { GlassCard } from '@/components/common/GlassCard';
-import { roadmapService } from '@/services/mission.service';
 import { formatApiError } from '@/utils/formatApiError';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { StatusBadge } from '@/components/progress/StatusBadge';
+import { FilterChips } from '@/components/progress/FilterChips';
+import { useProgressTree, matchNode } from '@/hooks/useProgressTree';
 
 const TRACK_ICON = {
   dsa: Code2, java: Coffee, lld: Layers, hld: Network,
   operating_systems: Cpu, dbms: Database, computer_networks: Wifi,
-};
-
-const STATUS_STYLE = {
-  locked:      'text-muted-foreground bg-white/[0.03] border-white/[0.06]',
-  available:   'text-muted-foreground bg-white/[0.03] border-white/[0.08]',
-  in_progress: 'text-primary bg-primary/10 border-primary/30',
-  completed:   'text-emerald-300 bg-emerald-400/10 border-emerald-400/30',
-  mastered:    'text-emerald-200 bg-emerald-400/20 border-emerald-400/40',
+  projects: Hammer, behavioral: MessageCircle, resume: FileText,
 };
 
 const BUCKET_DOT = {
@@ -52,8 +47,10 @@ function flattenTopics(rootNodes, expanded) {
 }
 
 function TopicItem({ topic, depth, hasKids, isOpen, onToggle }) {
-  const status = topic.progress?.status || 'available';
+  const status = topic.progress?.status || 'not_started';
   const bkt = topic.progress?.revision_bucket || 'green';
+  const bookmarked = !!topic.progress?.bookmarked;
+  const favorite = !!topic.progress?.favorite;
   return (
     <div style={{ paddingLeft: `${depth * 20}px` }}>
       <div className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-white/[0.03] transition-colors">
@@ -73,12 +70,13 @@ function TopicItem({ topic, depth, hasKids, isOpen, onToggle }) {
         >
           {topic.label}
         </Link>
-        <span className={cn(
-          'hidden sm:inline-block text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full border',
-          STATUS_STYLE[status],
-        )}>
-          {status.replace('_', ' ')}
-        </span>
+        {bookmarked && (
+          <span title="Bookmarked" className="text-primary text-[10px]" data-testid={`node-bookmark-indicator-${topic.id}`}>■</span>
+        )}
+        {favorite && (
+          <span title="Favorite" className="text-amber-300 text-[10px]" data-testid={`node-favorite-indicator-${topic.id}`}>★</span>
+        )}
+        <StatusBadge status={status} className="hidden sm:inline-block" />
         <span className="font-mono text-[11px] text-muted-foreground w-10 text-right">
           {Math.round(topic.progress?.mastery_percentage || 0)}%
         </span>
@@ -168,17 +166,14 @@ function TrackBlock({ track, isOpen, onToggle, expanded, toggleNode }) {
 }
 
 export default function KnowledgeBase() {
-  const [tree, setTree] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { tree, loading, error } = useProgressTree();
   const [expanded, setExpanded] = useState(new Set());
   const [q, setQ] = useState('');
+  const [filters, setFilters] = useState(new Set());
 
   useEffect(() => {
-    roadmapService.tree()
-      .then(setTree)
-      .catch((e) => toast.error(formatApiError(e)))
-      .finally(() => setLoading(false));
-  }, []);
+    if (error) toast.error(formatApiError(error));
+  }, [error]);
 
   const toggleNode = (id) => {
     setExpanded((s) => {
@@ -188,10 +183,21 @@ export default function KnowledgeBase() {
     });
   };
 
+  const toggleFilter = (key) => {
+    setFilters((s) => {
+      const n = new Set(s);
+      n.has(key) ? n.delete(key) : n.add(key);
+      return n;
+    });
+  };
+
+  const clearFilters = () => setFilters(new Set());
+
   const filteredTracks = useMemo(() => {
     if (!tree) return [];
     const needle = q.trim().toLowerCase();
-    if (!needle) return tree.tracks || [];
+    const hasFilters = filters.size > 0;
+    if (!needle && !hasFilters) return tree.tracks || [];
     // Iterative filter — walk with an explicit stack so the visual-edit
     // plugin cannot re-enter itself while analysing this closure.
     const autoExpand = new Set();
@@ -214,8 +220,11 @@ export default function KnowledgeBase() {
         } else {
           stack.pop();
           const kids = kidsCollected.get(it.node) || [];
-          const selfMatch =
-            it.node.label.toLowerCase().includes(needle) || (it.node.id || '').includes(needle);
+          const textMatch = !needle
+            || it.node.label.toLowerCase().includes(needle)
+            || (it.node.id || '').includes(needle);
+          const filterMatch = !hasFilters || matchNode(it.node, filters);
+          const selfMatch = textMatch && filterMatch;
           if (selfMatch || kids.length) {
             const copy = { ...it.node, children: kids };
             if (kids.length) autoExpand.add(it.node.id);
@@ -232,7 +241,7 @@ export default function KnowledgeBase() {
     const tracks = (tree.tracks || []).map(cloneMatches).filter(Boolean);
     setTimeout(() => setExpanded((s) => new Set([...s, ...autoExpand])), 0);
     return tracks;
-  }, [tree, q]);
+  }, [tree, q, filters]);
 
   if (loading || !tree) {
     return (
@@ -273,6 +282,13 @@ export default function KnowledgeBase() {
           className="pl-10 bg-white/[0.03] border-white/10 h-11"
         />
       </div>
+
+      <FilterChips
+        active={filters}
+        companies={tree.companies || []}
+        onToggle={toggleFilter}
+        onClear={clearFilters}
+      />
 
       <div className="grid grid-cols-1 gap-4">
         {filteredTracks.map((track) => (

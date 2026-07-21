@@ -49,8 +49,15 @@ export const roadmapService = {
   tree: () => api.get('/roadmap').then((r) => r.data),
   node: (nodeId) => api.get(`/roadmap/nodes/${nodeId}`).then((r) => r.data),
   progress: () => api.get('/roadmap/progress').then((r) => r.data),
+  summary: () => api.get('/roadmap/summary').then((r) => r.data),
   saveNotes: (nodeId, notes) => api.patch(`/roadmap/nodes/${nodeId}/notes`, { notes }).then((r) => r.data),
   setConfidence: (nodeId, confidence) =>
     api.post(`/roadmap/nodes/${nodeId}/confidence`, { confidence }).then((r) => r.data),
+  setStatus: (nodeId, status) =>
+    api.post(`/roadmap/nodes/${nodeId}/status`, { status }).then((r) => r.data),
+  toggleBookmark: (nodeId) => api.post(`/roadmap/nodes/${nodeId}/bookmark`).then((r) => r.data),
+  toggleFavorite: (nodeId) => api.post(`/roadmap/nodes/${nodeId}/favorite`).then((r) => r.data),
+  recordAttempt: (nodeId, actualMinutes) =>
+    api.post(`/roadmap/nodes/${nodeId}/attempt`, actualMinutes ? { actual_minutes: actualMinutes } : {}).then((r) => r.data),
   version: () => api.get('/roadmap/version').then((r) => r.data),
 };

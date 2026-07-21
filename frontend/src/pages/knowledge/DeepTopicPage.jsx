@@ -15,14 +15,8 @@ import { formatApiError } from '@/utils/formatApiError';
 import { TARGET_COMPANIES } from '@/config/companies';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow, parseISO } from 'date-fns';
-
-const STATUS_TONE = {
-  locked:      'border-white/10 bg-white/[0.03] text-muted-foreground',
-  available:   'border-white/10 bg-white/[0.03] text-muted-foreground',
-  in_progress: 'border-primary/30 bg-primary/10 text-primary',
-  completed:   'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
-  mastered:    'border-emerald-400/40 bg-emerald-400/20 text-emerald-200',
-};
+import { StatusBadge } from '@/components/progress/StatusBadge';
+import { NodeActions } from '@/components/progress/NodeActions';
 
 const BUCKET_LABEL = {
   green:  { label: 'Fresh',   cls: 'text-emerald-300 border-emerald-400/30 bg-emerald-400/10' },
@@ -138,16 +132,22 @@ export default function DeepTopicPage() {
         <div className="absolute -top-20 -right-20 h-56 w-56 rounded-full bg-primary/10 blur-3xl" />
         <div className="flex flex-col md:flex-row items-start gap-6">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
               <span className="overline">{node.type || 'topic'}</span>
-              <span className={cn('text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full border', STATUS_TONE[progress.status || 'available'])}>
-                {(progress.status || 'available').replace('_', ' ')}
-              </span>
+              <StatusBadge status={progress.status || 'not_started'} />
               {progress.revision_bucket && (
                 <span className={cn('text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full border', BUCKET_LABEL[progress.revision_bucket].cls)}>
                   {BUCKET_LABEL[progress.revision_bucket].label}
                 </span>
               )}
+              <div className="ml-auto flex items-center gap-2">
+                <NodeActions
+                  nodeId={node.id}
+                  bookmarked={progress.bookmarked}
+                  favorite={progress.favorite}
+                  onChange={load}
+                />
+              </div>
             </div>
             <h1 className="font-display text-3xl sm:text-4xl font-semibold tracking-tight">{node.label}</h1>
             <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
@@ -162,7 +162,45 @@ export default function DeepTopicPage() {
             <div className="mt-5 grid grid-cols-3 gap-4 max-w-md">
               <Stat label="Mastery" value={`${Math.round(progress.mastery_percentage || 0)}%`} />
               <Stat label="Confidence" value={`${(progress.confidence || 0).toFixed(1)}/10`} />
-              <Stat label="Weakness" value={`${Math.round(progress.weakness_score || 0)}`} />
+              <Stat label="Attempts" value={`${progress.attempts || 0}`} />
+            </div>
+
+            {/* Quick actions — attempt + status transitions */}
+            <div className="mt-5 flex flex-wrap items-center gap-2" data-testid="topic-quick-actions">
+              <Button
+                onClick={async () => {
+                  const raw = window.prompt('Time spent on this attempt in minutes (leave blank to skip):', '');
+                  const mins = raw ? Math.max(0, parseInt(raw, 10) || 0) : null;
+                  try {
+                    await roadmapService.recordAttempt(node.id, mins || null);
+                    toast.success(mins ? `Logged attempt (${mins}m).` : 'Attempt logged.');
+                    load();
+                  } catch (e) { toast.error(formatApiError(e)); }
+                }}
+                data-testid="topic-record-attempt"
+                variant="secondary"
+                className="h-8 text-xs"
+              >
+                <Clock className="h-3.5 w-3.5 mr-1.5" />
+                Record Attempt
+              </Button>
+              {['in_progress', 'completed', 'mastered'].map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await roadmapService.setStatus(node.id, s);
+                      toast.success(`Marked as ${s.replace('_', ' ')}.`);
+                      load();
+                    } catch (e) { toast.error(formatApiError(e)); }
+                  }}
+                  data-testid={`topic-mark-${s}`}
+                  className="text-[11px] font-mono uppercase tracking-wider px-2.5 py-1 rounded-full border bg-white/[0.03] border-white/[0.08] text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+                >
+                  Mark {s.replace('_', ' ')}
+                </button>
+              ))}
             </div>
           </div>
 

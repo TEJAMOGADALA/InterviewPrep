@@ -10,10 +10,11 @@ import { format, formatDistanceToNow, parseISO } from 'date-fns';
 import { GlassCard } from '@/components/common/GlassCard';
 import { DASHBOARD } from '@/constants/testIds';
 import { useAuth } from '@/contexts/AuthContext';
-import { dashboardService, missionService, knowledgeService } from '@/services/mission.service';
+import { dashboardService, missionService, knowledgeService, roadmapService } from '@/services/mission.service';
 import { TARGET_COMPANIES } from '@/config/companies';
 import { formatApiError } from '@/utils/formatApiError';
 import { cn } from '@/lib/utils';
+import { ProgressBar } from '@/components/progress/ProgressBar';
 
 const ACTIVITY_META = {
   mission_completed:  { dot: 'bg-emerald-400',  label: 'Mission completed' },
@@ -62,11 +63,16 @@ export default function MissionControl() {
   const [busyAction, setBusyAction] = useState(null);
   const [tree, setTree] = useState(null);
   const [expandedDomain, setExpandedDomain] = useState(null);
+  const [summary, setSummary] = useState(null);
 
   const load = useCallback(async () => {
     try {
-      const d = await dashboardService.get();
+      const [d, s] = await Promise.all([
+        dashboardService.get(),
+        roadmapService.summary().catch(() => null),
+      ]);
       setData(d);
+      if (s) setSummary(s);
     } catch (err) {
       toast.error(formatApiError(err));
     } finally {
@@ -195,6 +201,50 @@ export default function MissionControl() {
             )}
           </div>
         </motion.div>
+      )}
+
+      {/* Interview Progress strip — powered by /api/roadmap/summary */}
+      {summary && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3" data-testid="interview-progress-strip">
+          <GlassCard className="p-4" data-testid="progress-tile-overall">
+            <div className="overline mb-1">Overall</div>
+            <div className="flex items-baseline gap-1">
+              <span className="font-display text-2xl font-semibold">{Math.round(summary.overall.readiness)}</span>
+              <span className="text-xs text-muted-foreground">%</span>
+            </div>
+            <ProgressBar value={summary.overall.readiness} className="mt-2" size="sm" />
+            <div className="mt-2 text-[10px] font-mono text-muted-foreground">
+              {summary.overall.completed_topics}/{summary.overall.total_topics} topics
+            </div>
+          </GlassCard>
+          {['dsa', 'lld', 'hld', 'behavioral'].map((tid) => {
+            const t = (summary.tracks || []).find((x) => x.id === tid);
+            if (!t) return null;
+            return (
+              <GlassCard key={tid} className="p-4" data-testid={`progress-tile-${tid}`}>
+                <div className="overline mb-1 truncate">{t.label}</div>
+                <div className="flex items-baseline gap-1">
+                  <span className="font-display text-2xl font-semibold">{Math.round(t.completion_pct)}</span>
+                  <span className="text-xs text-muted-foreground">%</span>
+                </div>
+                <ProgressBar value={t.completion_pct} className="mt-2" size="sm" />
+                <div className="mt-2 text-[10px] font-mono text-muted-foreground">
+                  {t.completed_topics}/{t.total_topics} · {t.estimated_hours_remaining}h left
+                </div>
+              </GlassCard>
+            );
+          })}
+          <GlassCard className="p-4" data-testid="progress-tile-today">
+            <div className="overline mb-1">Today</div>
+            <div className="flex items-baseline gap-1">
+              <span className="font-display text-2xl font-semibold">{summary.today.completed_count}</span>
+              <span className="text-xs text-muted-foreground">done</span>
+            </div>
+            <div className="mt-2 text-[10px] font-mono text-muted-foreground">
+              {summary.counts.revision_due} revision due · {summary.counts.bookmarked} bookmarks
+            </div>
+          </GlassCard>
+        </div>
       )}
 
       {/* Bento grid */}

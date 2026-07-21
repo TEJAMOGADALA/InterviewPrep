@@ -125,7 +125,7 @@ class TestRoadmapTree:
         data = r.json()
         assert "tracks" in data
         assert "companies" in data
-        assert len(data["tracks"]) == 7, f"Expected 7 tracks, got {len(data['tracks'])}"
+        assert len(data["tracks"]) == 10, f"Expected 10 tracks, got {len(data['tracks'])}"
         companies = data["companies"]
         assert len(companies) == 14, f"Expected 14 companies, got {len(companies)}"
         for req in ("paypal", "goldman_sachs", "zoho", "google"):
