@@ -540,6 +540,40 @@ async def submit_problem_feedback(
             upsert=True,
         )
 
+        # Sync to Roadmap KnowledgeNode (pattern node + track node)
+        try:
+            from roadmap import get_roadmap as _get_rm, CURRENT_VERSION as _V
+            _rm = _get_rm(_V)
+            pattern_nodes = _rm.by_pattern(a["pattern"])
+            targets = set([domain])
+            if pattern_nodes:
+                targets.add(pattern_nodes[0]["id"])
+            for nid in targets:
+                # Confidence is weighted running average with new feedback point
+                existing = await db.knowledge_nodes.find_one(
+                    {"user_id": user["id"], "roadmap_version": _V, "node_id": nid},
+                    {"_id": 0},
+                )
+                prev_conf = float(existing.get("confidence", 0.0)) if existing else 0.0
+                new_conf = round((prev_conf * 3 + payload.confidence) / 4, 2)
+                weak = max(0.0, 100 - new_conf * 10)
+                mastery = min(100.0, new_conf * 10)
+                bucket = "green" if new_conf >= 7 else "yellow" if new_conf >= 4 else "red"
+                status = "mastered" if new_conf >= 9 else "in_progress"
+                await db.knowledge_nodes.update_one(
+                    {"user_id": user["id"], "roadmap_version": _V, "node_id": nid},
+                    {"$set": {
+                        "user_id": user["id"], "roadmap_version": _V, "node_id": nid,
+                        "confidence": new_conf, "weakness_score": weak,
+                        "mastery_percentage": mastery,
+                        "revision_bucket": bucket, "status": status,
+                        "updated_at": _now_iso(),
+                    }},
+                    upsert=True,
+                )
+        except Exception:
+            pass  # Roadmap sync is best-effort
+
     # Schedule revision from confidence
     rev = RevisionItem(
         user_id=user["id"],

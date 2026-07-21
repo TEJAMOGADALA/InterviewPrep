@@ -1,0 +1,350 @@
+{
+  "version": "v1",
+  "generated_at": "2026-01-01",
+  "companies": ["google", "microsoft", "amazon", "adobe", "atlassian", "linkedin", "stripe", "salesforce", "phonepe", "flipkart", "oracle", "uber"],
+  "tracks": [
+    {
+      "id": "dsa", "label": "Data Structures & Algorithms", "icon": "code2",
+      "interview_importance": 5, "estimated_minutes": 0,
+      "company_importance": {"google": 5, "microsoft": 5, "amazon": 5, "adobe": 4, "atlassian": 4, "linkedin": 5, "stripe": 4, "salesforce": 3, "phonepe": 4, "flipkart": 5, "oracle": 3, "uber": 5},
+      "modules": [
+        {
+          "id": "dsa.foundations", "label": "Foundations",
+          "topics": [
+            {"id": "dsa.foundations.arrays", "label": "Arrays", "pattern": "arrays", "estimated_minutes": 90, "difficulty": "easy",
+             "learning_nodes": [
+               {"id": "dsa.foundations.arrays.kadane", "label": "Kadane's Algorithm", "problem_ids": ["lc-53"], "estimated_minutes": 20},
+               {"id": "dsa.foundations.arrays.prefix_sum", "label": "Prefix Sum", "problem_ids": ["lc-238"], "estimated_minutes": 25}
+             ]},
+            {"id": "dsa.foundations.hashing", "label": "Hashing", "pattern": "hashing", "estimated_minutes": 90, "difficulty": "easy",
+             "prerequisites": ["java.collections.hashmap"],
+             "learning_nodes": [
+               {"id": "dsa.foundations.hashing.frequency", "label": "Frequency Counting", "problem_ids": ["lc-217", "lc-49"], "estimated_minutes": 20},
+               {"id": "dsa.foundations.hashing.two_sum", "label": "Two-Sum Family", "problem_ids": ["lc-1"], "estimated_minutes": 15}
+             ]},
+            {"id": "dsa.foundations.two_pointers", "label": "Two Pointers", "pattern": "two_pointers", "estimated_minutes": 90, "difficulty": "easy",
+             "learning_nodes": [
+               {"id": "dsa.foundations.two_pointers.palindrome", "label": "Palindrome Check", "problem_ids": ["lc-125", "lc-680"], "estimated_minutes": 15},
+               {"id": "dsa.foundations.two_pointers.k_sum", "label": "3Sum / k-Sum", "problem_ids": ["lc-15", "lc-11"], "estimated_minutes": 30}
+             ]}
+          ]
+        },
+        {
+          "id": "dsa.windows_search", "label": "Windows & Search",
+          "topics": [
+            {"id": "dsa.windows.sliding_window", "label": "Sliding Window", "pattern": "sliding_window", "estimated_minutes": 120, "difficulty": "medium",
+             "prerequisites": ["dsa.foundations.two_pointers", "dsa.foundations.hashing"],
+             "subtopics": [
+               {"id": "dsa.windows.sliding_window.fixed", "label": "Fixed Window",
+                "learning_nodes": [
+                  {"id": "dsa.windows.sliding_window.fixed.max_avg", "label": "Max Average Subarray", "problem_ids": ["lc-643"], "estimated_minutes": 15}
+                ]},
+               {"id": "dsa.windows.sliding_window.variable", "label": "Variable Window",
+                "learning_nodes": [
+                  {"id": "dsa.windows.sliding_window.variable.longest_unique", "label": "Longest Substring w/o Repeat", "problem_ids": ["lc-3"], "estimated_minutes": 25},
+                  {"id": "dsa.windows.sliding_window.variable.min_window", "label": "Minimum Window Substring", "problem_ids": ["lc-76"], "estimated_minutes": 40},
+                  {"id": "dsa.windows.sliding_window.variable.anagrams", "label": "Anagrams & Permutations", "problem_ids": ["lc-438", "lc-567"], "estimated_minutes": 30}
+                ]}
+             ]},
+            {"id": "dsa.search.binary_search", "label": "Binary Search", "pattern": "binary_search", "estimated_minutes": 120, "difficulty": "medium",
+             "learning_nodes": [
+               {"id": "dsa.search.binary_search.basic", "label": "Basic Binary Search", "problem_ids": ["lc-704"], "estimated_minutes": 15},
+               {"id": "dsa.search.binary_search.rotated", "label": "Rotated Sorted Array", "problem_ids": ["lc-33", "lc-153"], "estimated_minutes": 40},
+               {"id": "dsa.search.binary_search.on_answer", "label": "Binary Search on Answer", "problem_ids": ["lc-410", "lc-875"], "estimated_minutes": 45}
+             ]}
+          ]
+        },
+        {
+          "id": "dsa.linear_structures", "label": "Linear Structures",
+          "topics": [
+            {"id": "dsa.linear.stack", "label": "Stack & Monotonic", "pattern": "stack", "estimated_minutes": 90, "difficulty": "medium",
+             "learning_nodes": [
+               {"id": "dsa.linear.stack.parens", "label": "Balanced Parentheses", "problem_ids": ["lc-20"], "estimated_minutes": 15},
+               {"id": "dsa.linear.stack.monotonic", "label": "Monotonic Stack", "problem_ids": ["lc-739", "lc-84"], "estimated_minutes": 40}
+             ]},
+            {"id": "dsa.linear.linked_list", "label": "Linked List", "pattern": "linked_list", "estimated_minutes": 120, "difficulty": "medium",
+             "prerequisites": ["dsa.foundations.two_pointers"],
+             "learning_nodes": [
+               {"id": "dsa.linear.linked_list.reverse", "label": "Reverse & Merge", "problem_ids": ["lc-206", "lc-21"], "estimated_minutes": 25},
+               {"id": "dsa.linear.linked_list.fast_slow", "label": "Fast/Slow Pointers", "problem_ids": ["lc-141"], "estimated_minutes": 20},
+               {"id": "dsa.linear.linked_list.lru", "label": "LRU Cache", "problem_ids": ["lc-146"], "estimated_minutes": 40}
+             ]}
+          ]
+        },
+        {
+          "id": "dsa.trees_graphs", "label": "Trees & Graphs",
+          "topics": [
+            {"id": "dsa.trees.binary_tree", "label": "Binary Trees", "pattern": "trees", "estimated_minutes": 150, "difficulty": "medium",
+             "prerequisites": [],
+             "subtopics": [
+               {"id": "dsa.trees.traversal", "label": "Traversal",
+                "learning_nodes": [
+                  {"id": "dsa.trees.traversal.level_order", "label": "Level Order (BFS)", "problem_ids": ["lc-102"], "estimated_minutes": 25},
+                  {"id": "dsa.trees.traversal.depth", "label": "Depth & Comparison", "problem_ids": ["lc-104", "lc-100"], "estimated_minutes": 20}
+                ]},
+               {"id": "dsa.trees.bst", "label": "Binary Search Tree",
+                "learning_nodes": [
+                  {"id": "dsa.trees.bst.validate", "label": "Validate BST", "problem_ids": ["lc-98"], "estimated_minutes": 30},
+                  {"id": "dsa.trees.bst.kth_smallest", "label": "Kth Smallest", "problem_ids": ["lc-230"], "estimated_minutes": 25}
+                ]}
+             ]},
+            {"id": "dsa.trees.graphs", "label": "Graphs · BFS & DFS", "pattern": "graphs", "estimated_minutes": 180, "difficulty": "medium",
+             "prerequisites": ["dsa.trees.binary_tree", "dsa.linear.stack"],
+             "learning_nodes": [
+               {"id": "dsa.trees.graphs.islands", "label": "Number of Islands", "problem_ids": ["lc-200", "lc-994"], "estimated_minutes": 35},
+               {"id": "dsa.trees.graphs.topo", "label": "Topological Sort", "problem_ids": ["lc-207"], "estimated_minutes": 30},
+               {"id": "dsa.trees.graphs.shortest_path", "label": "Shortest Path · Dijkstra", "problem_ids": ["lc-743"], "estimated_minutes": 45}
+             ]}
+          ]
+        },
+        {
+          "id": "dsa.priority", "label": "Heaps & Priority",
+          "topics": [
+            {"id": "dsa.heaps.priority_queue", "label": "Heaps & Priority Queues", "pattern": "heap", "estimated_minutes": 150, "difficulty": "medium",
+             "prerequisites": ["dsa.trees.binary_tree", "java.collections.comparator"],
+             "learning_nodes": [
+               {"id": "dsa.heaps.kth", "label": "Kth Largest", "problem_ids": ["lc-215", "lc-703"], "estimated_minutes": 30},
+               {"id": "dsa.heaps.k_closest", "label": "K Closest Points", "problem_ids": ["lc-973"], "estimated_minutes": 25},
+               {"id": "dsa.heaps.two_heaps", "label": "Two-Heap Median", "problem_ids": ["lc-295"], "estimated_minutes": 40},
+               {"id": "dsa.heaps.task_scheduler", "label": "Task Scheduler", "problem_ids": ["lc-621"], "estimated_minutes": 30}
+             ]}
+          ]
+        },
+        {
+          "id": "dsa.dp_backtracking", "label": "DP & Backtracking",
+          "topics": [
+            {"id": "dsa.dp.core", "label": "Dynamic Programming", "pattern": "dp", "estimated_minutes": 240, "difficulty": "hard",
+             "prerequisites": ["dsa.foundations.arrays"],
+             "subtopics": [
+               {"id": "dsa.dp.1d", "label": "1D DP",
+                "learning_nodes": [
+                  {"id": "dsa.dp.1d.climbing", "label": "Climbing Stairs", "problem_ids": ["lc-70"], "estimated_minutes": 15},
+                  {"id": "dsa.dp.1d.house_robber", "label": "House Robber", "problem_ids": ["lc-198", "lc-213"], "estimated_minutes": 30}
+                ]},
+               {"id": "dsa.dp.unbounded", "label": "Unbounded Knapsack",
+                "learning_nodes": [
+                  {"id": "dsa.dp.unbounded.coin_change", "label": "Coin Change I & II", "problem_ids": ["lc-322", "lc-518"], "estimated_minutes": 40}
+                ]},
+               {"id": "dsa.dp.2d", "label": "2D DP",
+                "learning_nodes": [
+                  {"id": "dsa.dp.2d.lcs", "label": "Longest Common Subsequence", "problem_ids": ["lc-1143"], "estimated_minutes": 30},
+                  {"id": "dsa.dp.2d.edit_distance", "label": "Edit Distance", "problem_ids": ["lc-72"], "estimated_minutes": 40}
+                ]}
+             ]},
+            {"id": "dsa.backtracking.core", "label": "Backtracking", "pattern": "backtracking", "estimated_minutes": 120, "difficulty": "hard",
+             "learning_nodes": [
+               {"id": "dsa.backtracking.subsets", "label": "Subsets & Permutations", "problem_ids": ["lc-78", "lc-46"], "estimated_minutes": 35},
+               {"id": "dsa.backtracking.word_search", "label": "Word Search", "problem_ids": ["lc-79"], "estimated_minutes": 30}
+             ]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "java", "label": "Java", "icon": "coffee",
+      "interview_importance": 4,
+      "company_importance": {"google": 3, "microsoft": 4, "amazon": 4, "oracle": 5, "salesforce": 5, "adobe": 4, "atlassian": 4, "linkedin": 4, "stripe": 4, "phonepe": 4, "flipkart": 4, "uber": 3},
+      "modules": [
+        {
+          "id": "java.collections", "label": "Collections",
+          "topics": [
+            {"id": "java.collections.hashmap", "label": "HashMap Internals", "estimated_minutes": 60, "difficulty": "medium",
+             "prerequisites": ["java.collections.core", "java.oop.equals_hashcode"],
+             "subtopics": [
+               {"id": "java.collections.hashmap.collision", "label": "Collision Handling"},
+               {"id": "java.collections.hashmap.internal", "label": "Internal Working"},
+               {"id": "java.collections.hashmap.questions", "label": "Interview Questions"}
+             ]},
+            {"id": "java.collections.core", "label": "Core Collections", "estimated_minutes": 45, "difficulty": "easy",
+             "subtopics": [
+               {"id": "java.collections.core.arraylist", "label": "ArrayList"},
+               {"id": "java.collections.core.linkedlist", "label": "LinkedList"},
+               {"id": "java.collections.core.hashset", "label": "HashSet"},
+               {"id": "java.collections.core.priorityqueue", "label": "Priority Queue"}
+             ]},
+            {"id": "java.collections.comparator", "label": "Comparator & Comparable", "estimated_minutes": 30, "difficulty": "easy"}
+          ]
+        },
+        {
+          "id": "java.concurrency", "label": "Concurrency",
+          "topics": [
+            {"id": "java.concurrency.threads", "label": "Threads & Runnable", "estimated_minutes": 60, "difficulty": "medium"},
+            {"id": "java.concurrency.executor", "label": "Executors & Thread Pools", "estimated_minutes": 60, "difficulty": "hard"},
+            {"id": "java.concurrency.sync", "label": "Locks & Synchronization", "estimated_minutes": 60, "difficulty": "hard"}
+          ]
+        },
+        {
+          "id": "java.streams_lambdas", "label": "Streams & Lambdas",
+          "topics": [
+            {"id": "java.streams.core", "label": "Streams API", "estimated_minutes": 45, "difficulty": "medium"},
+            {"id": "java.lambdas.core", "label": "Lambdas & Functional Interfaces", "estimated_minutes": 30, "difficulty": "easy"}
+          ]
+        },
+        {
+          "id": "java.jvm", "label": "JVM",
+          "topics": [
+            {"id": "java.jvm.memory", "label": "JVM Memory Model", "estimated_minutes": 60, "difficulty": "hard"},
+            {"id": "java.jvm.gc", "label": "Garbage Collection", "estimated_minutes": 45, "difficulty": "hard"}
+          ]
+        },
+        {
+          "id": "java.oop", "label": "OOP Foundations",
+          "topics": [
+            {"id": "java.oop.equals_hashcode", "label": "equals() & hashCode()", "estimated_minutes": 30, "difficulty": "easy"},
+            {"id": "java.oop.inheritance", "label": "Inheritance & Polymorphism", "estimated_minutes": 45, "difficulty": "medium"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lld", "label": "Low-Level Design", "icon": "layers",
+      "interview_importance": 4,
+      "company_importance": {"google": 3, "microsoft": 4, "amazon": 4, "adobe": 5, "atlassian": 5, "linkedin": 4, "stripe": 4, "salesforce": 5, "phonepe": 4, "flipkart": 4, "oracle": 3, "uber": 4},
+      "modules": [
+        {
+          "id": "lld.principles", "label": "Design Principles",
+          "topics": [
+            {"id": "lld.principles.solid", "label": "SOLID Principles", "estimated_minutes": 60, "difficulty": "medium"},
+            {"id": "lld.principles.dry_kiss", "label": "DRY / KISS / YAGNI", "estimated_minutes": 30, "difficulty": "easy"}
+          ]
+        },
+        {
+          "id": "lld.patterns", "label": "Design Patterns",
+          "topics": [
+            {"id": "lld.patterns.creational", "label": "Creational Patterns", "estimated_minutes": 90, "difficulty": "medium",
+             "subtopics": [
+               {"id": "lld.patterns.creational.factory", "label": "Factory"},
+               {"id": "lld.patterns.creational.builder", "label": "Builder"},
+               {"id": "lld.patterns.creational.singleton", "label": "Singleton"}
+             ]},
+            {"id": "lld.patterns.behavioral", "label": "Behavioral Patterns", "estimated_minutes": 90, "difficulty": "medium",
+             "subtopics": [
+               {"id": "lld.patterns.behavioral.observer", "label": "Observer"},
+               {"id": "lld.patterns.behavioral.strategy", "label": "Strategy"},
+               {"id": "lld.patterns.behavioral.state", "label": "State"}
+             ]}
+          ]
+        },
+        {
+          "id": "lld.cases", "label": "Case Studies",
+          "topics": [
+            {"id": "lld.cases.parking_lot", "label": "Design a Parking Lot", "estimated_minutes": 90, "difficulty": "medium"},
+            {"id": "lld.cases.chess", "label": "Design Chess", "estimated_minutes": 120, "difficulty": "hard"},
+            {"id": "lld.cases.splitwise", "label": "Design Splitwise", "estimated_minutes": 90, "difficulty": "medium"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hld", "label": "High-Level Design", "icon": "network",
+      "interview_importance": 4,
+      "company_importance": {"google": 5, "microsoft": 4, "amazon": 5, "atlassian": 4, "linkedin": 5, "stripe": 5, "salesforce": 3, "phonepe": 4, "flipkart": 4, "oracle": 3, "uber": 5, "adobe": 3},
+      "modules": [
+        {
+          "id": "hld.foundations", "label": "Foundations",
+          "topics": [
+            {"id": "hld.foundations.cap", "label": "CAP Theorem", "estimated_minutes": 30, "difficulty": "easy"},
+            {"id": "hld.foundations.consistency", "label": "Consistency Models", "estimated_minutes": 45, "difficulty": "medium"},
+            {"id": "hld.foundations.load_balancing", "label": "Load Balancing", "estimated_minutes": 30, "difficulty": "easy"}
+          ]
+        },
+        {
+          "id": "hld.caching", "label": "Caching",
+          "topics": [
+            {"id": "hld.caching.strategies", "label": "Caching Strategies", "estimated_minutes": 60, "difficulty": "medium",
+             "subtopics": [
+               {"id": "hld.caching.strategies.aside", "label": "Cache-Aside"},
+               {"id": "hld.caching.strategies.write_through", "label": "Write-Through"},
+               {"id": "hld.caching.strategies.write_back", "label": "Write-Back"}
+             ]},
+            {"id": "hld.caching.redis", "label": "Redis Deep-Dive", "estimated_minutes": 90, "difficulty": "medium",
+             "subtopics": [
+               {"id": "hld.caching.redis.ttl", "label": "TTL & Eviction"},
+               {"id": "hld.caching.redis.persistence", "label": "Persistence · RDB & AOF"}
+             ]}
+          ]
+        },
+        {
+          "id": "hld.messaging", "label": "Messaging & Streams",
+          "topics": [
+            {"id": "hld.messaging.queues", "label": "Message Queues", "estimated_minutes": 60, "difficulty": "medium"},
+            {"id": "hld.messaging.kafka", "label": "Apache Kafka",
+             "prerequisites": ["hld.messaging.queues", "cn.foundations.tcp_ip", "hld.distributed.systems"],
+             "estimated_minutes": 120, "difficulty": "hard"}
+          ]
+        },
+        {
+          "id": "hld.distributed", "label": "Distributed Systems",
+          "topics": [
+            {"id": "hld.distributed.systems", "label": "Distributed Systems Basics", "estimated_minutes": 60, "difficulty": "medium"},
+            {"id": "hld.distributed.consensus", "label": "Consensus · Raft & Paxos", "estimated_minutes": 90, "difficulty": "hard"}
+          ]
+        },
+        {
+          "id": "hld.cases", "label": "Case Studies",
+          "topics": [
+            {"id": "hld.cases.url_shortener", "label": "Design a URL Shortener", "estimated_minutes": 60, "difficulty": "medium"},
+            {"id": "hld.cases.rate_limiter", "label": "Design a Rate Limiter",
+             "prerequisites": ["hld.caching.redis"],
+             "estimated_minutes": 90, "difficulty": "hard"},
+            {"id": "hld.cases.news_feed", "label": "Design a News Feed", "estimated_minutes": 90, "difficulty": "hard"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "operating_systems", "label": "Operating Systems", "icon": "cpu",
+      "interview_importance": 3,
+      "company_importance": {"google": 3, "microsoft": 4, "amazon": 3, "oracle": 4, "salesforce": 3, "adobe": 3, "atlassian": 3, "linkedin": 3, "stripe": 3, "phonepe": 3, "flipkart": 3, "uber": 3},
+      "modules": [
+        {"id": "os.processes", "label": "Processes & Threads",
+         "topics": [
+           {"id": "os.processes.scheduling", "label": "Process Scheduling", "estimated_minutes": 60, "difficulty": "medium"},
+           {"id": "os.processes.sync", "label": "Semaphores & Mutex", "estimated_minutes": 45, "difficulty": "hard"},
+           {"id": "os.processes.deadlocks", "label": "Deadlocks", "estimated_minutes": 45, "difficulty": "medium"}
+         ]},
+        {"id": "os.memory", "label": "Memory",
+         "topics": [
+           {"id": "os.memory.paging", "label": "Memory Paging", "estimated_minutes": 60, "difficulty": "medium"},
+           {"id": "os.memory.virtual", "label": "Virtual Memory", "estimated_minutes": 45, "difficulty": "medium"}
+         ]}
+      ]
+    },
+    {
+      "id": "dbms", "label": "Databases", "icon": "database",
+      "interview_importance": 3,
+      "company_importance": {"google": 3, "microsoft": 4, "amazon": 4, "oracle": 5, "salesforce": 4, "adobe": 3, "atlassian": 4, "linkedin": 4, "stripe": 4, "phonepe": 4, "flipkart": 4, "uber": 4},
+      "modules": [
+        {"id": "dbms.relational", "label": "Relational",
+         "topics": [
+           {"id": "dbms.relational.acid", "label": "Transactions & ACID", "estimated_minutes": 60, "difficulty": "medium"},
+           {"id": "dbms.relational.indexing", "label": "Indexing Strategies", "estimated_minutes": 60, "difficulty": "medium"},
+           {"id": "dbms.relational.normalization", "label": "Normalization", "estimated_minutes": 30, "difficulty": "easy"}
+         ]},
+        {"id": "dbms.concurrency", "label": "Concurrency",
+         "topics": [
+           {"id": "dbms.concurrency.isolation", "label": "Isolation Levels", "estimated_minutes": 45, "difficulty": "hard"},
+           {"id": "dbms.concurrency.control", "label": "Concurrency Control", "estimated_minutes": 60, "difficulty": "hard"}
+         ]}
+      ]
+    },
+    {
+      "id": "computer_networks", "label": "Computer Networks", "icon": "wifi",
+      "interview_importance": 3,
+      "company_importance": {"google": 3, "microsoft": 3, "amazon": 3, "oracle": 3, "salesforce": 3, "adobe": 3, "atlassian": 3, "linkedin": 3, "stripe": 3, "phonepe": 3, "flipkart": 3, "uber": 4},
+      "modules": [
+        {"id": "cn.foundations", "label": "Foundations",
+         "topics": [
+           {"id": "cn.foundations.tcp_ip", "label": "TCP / IP", "estimated_minutes": 45, "difficulty": "medium"},
+           {"id": "cn.foundations.http_https", "label": "HTTP & HTTPS", "estimated_minutes": 30, "difficulty": "easy"},
+           {"id": "cn.foundations.dns", "label": "DNS Resolution", "estimated_minutes": 30, "difficulty": "easy"}
+         ]},
+        {"id": "cn.advanced", "label": "Advanced",
+         "topics": [
+           {"id": "cn.advanced.load_balancing", "label": "Load Balancing", "estimated_minutes": 45, "difficulty": "medium"},
+           {"id": "cn.advanced.cdn", "label": "CDN & Edge", "estimated_minutes": 45, "difficulty": "medium"}
+         ]}
+      ]
+    }
+  ]
+}

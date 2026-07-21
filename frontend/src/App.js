@@ -16,6 +16,7 @@ import MissionControl from '@/pages/dashboard/MissionControl';
 import CodingArena from '@/pages/coding/CodingArena';
 import SystemDesign from '@/pages/system-design/SystemDesign';
 import KnowledgeBase from '@/pages/knowledge/KnowledgeBase';
+import DeepTopicPage from '@/pages/knowledge/DeepTopicPage';
 import AIMentor from '@/pages/ai-mentor/AIMentor';
 import CommandAnalytics from '@/pages/analytics/CommandAnalytics';
 import NotificationsPage from '@/pages/notifications/NotificationsPage';
@@ -57,6 +58,7 @@ function App() {
               <Route path="coding-arena" element={<CodingArena />} />
               <Route path="system-design" element={<SystemDesign />} />
               <Route path="knowledge-base" element={<KnowledgeBase />} />
+              <Route path="knowledge-base/nodes/:nodeId" element={<DeepTopicPage />} />
               <Route path="ai-mentor" element={<AIMentor />} />
               <Route path="analytics" element={<CommandAnalytics />} />
               <Route path="notifications" element={<NotificationsPage />} />

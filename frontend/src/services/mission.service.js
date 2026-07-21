@@ -44,3 +44,13 @@ export const knowledgeService = {
 export const readinessService = {
   companies: () => api.get('/readiness/companies').then((r) => r.data),
 };
+
+export const roadmapService = {
+  tree: () => api.get('/roadmap').then((r) => r.data),
+  node: (nodeId) => api.get(`/roadmap/nodes/${nodeId}`).then((r) => r.data),
+  progress: () => api.get('/roadmap/progress').then((r) => r.data),
+  saveNotes: (nodeId, notes) => api.patch(`/roadmap/nodes/${nodeId}/notes`, { notes }).then((r) => r.data),
+  setConfidence: (nodeId, confidence) =>
+    api.post(`/roadmap/nodes/${nodeId}/confidence`, { confidence }).then((r) => r.data),
+  version: () => api.get('/roadmap/version').then((r) => r.data),
+};

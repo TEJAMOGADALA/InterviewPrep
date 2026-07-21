@@ -53,6 +53,18 @@ Build the production-ready foundation for an AI-powered Interview Operating Syst
 - Profile page with target companies, target date, skill baseline.
 - Feature flag architecture, scalable, no business logic yet.
 
+## What's been implemented — 2026-07-21 (iteration 4 · Roadmap Engine + Knowledge Graph)
+- **Master Roadmap** (`/app/backend/data/roadmap_v1.json`) — versioned, data-driven hierarchy: Track → Module → Topic → Subtopic → LearningNode. 7 tracks, ~30 modules, ~65 topics, ~40 learning nodes with real problem IDs from problem_bank.
+- **RoadmapEngine** (`/app/backend/roadmap.py`) — singleton with O(1) node lookup, breadcrumb/ancestors, prerequisite/related resolution, `by_pattern`, `problems_for_node`, `company_importance`. Backwards-compat adapters export legacy `TOPIC_META` / `SUBTOPIC_TO_PATTERN` / `PATTERN_TO_DOMAIN` shapes so Mission Engine keeps working unchanged.
+- **KnowledgeNode model** — per-user per-node state (status/confidence/weakness_score/revision_bucket/mastery_percentage/notes/updated_at), keyed by `(user_id, roadmap_version, node_id)` unique index.
+- **New endpoints**: `GET /api/roadmap` (full tree with rolled-up progress), `GET /api/roadmap/nodes/{id}` (deep topic page: breadcrumb + prereqs + related + linked problems + assignments/feedback + notes + activity + company importance), `GET /api/roadmap/progress` (per-track/module rollup), `PATCH /api/roadmap/nodes/{id}/notes`, `POST /api/roadmap/nodes/{id}/confidence`, `GET /api/roadmap/version`.
+- **Migration on startup** — for every existing user: (a) stamp `roadmap_version=v1` on user record, (b) backfill `knowledge_nodes` at track level from legacy `knowledge_progress`, (c) backfill pattern-level nodes from `problem_feedback` aggregations. Fully idempotent — preserves any user notes.
+- **Feedback sync** — `submit_problem_feedback` now writes to BOTH legacy `knowledge_progress` (backward compat) AND new `knowledge_nodes` (roadmap graph, weighted running-average confidence per pattern + track).
+- **Self-heal** for orphaned onboarding — 409 `onboarding_required` auto-redirect (fixed in mid-iteration for prior data-consistency issue).
+- **Knowledge Explorer** (`/app/knowledge-base`) — full rebuild. Iterative flat-render (no JSX recursion, so the visual-edit babel plugin no longer overflows). Track cards expand into modules → topics → subtopics with progress bars, revision-bucket dots (green/yellow/red), status chips, and mastery %. Search box filters + auto-expands matches.
+- **Deep Topic Page** (`/app/knowledge-base/nodes/:nodeId`) — breadcrumb, hero with status/bucket chips, live Set-Confidence slider (persists), Mastery/Confidence/Weakness stats, Prerequisites cards (link to their own deep pages), Related links, Interview Importance star ratings per company, Resource tabs (Theory/Examples/Interview Tips/Common Mistakes/Articles/Videos/Flashcards — placeholders for AI Mentor), linked Coding Problems (with LeetCode links + feedback state), Personal Notes editor, Activity timeline.
+- **All existing modules continue working** — Auth, Onboarding, Mission Engine V2, Coding Arena, Company Readiness, Notifications, Settings, Profile. No API removed.
+
 ## What's been implemented — 2026-07-21 (iteration 3 · Adaptive Engine + Coding Arena)
 - **Curated Problem Bank** (`/app/backend/problem_bank.py`) — 87 problems across 16 patterns with real LeetCode URLs. PATTERN_TO_DOMAIN + PATTERN_PREREQUISITES root-cause map.
 - **Mission Engine V2** (adaptive) — analyses last 36h of feedback (confidence, hints, time, could_not_solve) and picks mode:

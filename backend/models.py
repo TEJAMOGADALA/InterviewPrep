@@ -253,3 +253,30 @@ class WeaknessRecord(BaseModel):
     signal: str  # low_confidence | many_hints | timeout | could_not_solve
     detected_at: str = Field(default_factory=_now_iso)
     resolved_at: Optional[str] = None
+
+
+# ============ Roadmap Knowledge Graph ============
+
+class KnowledgeNode(BaseModel):
+    """Per-user per-node state on a versioned roadmap."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    roadmap_version: str = "v1"
+    node_id: str
+    status: str = "available"  # locked | available | in_progress | completed | mastered
+    confidence: float = 0.0  # 0-10
+    weakness_score: float = 0.0  # 0-100 (higher = weaker)
+    revision_bucket: str = "green"  # green | yellow | red
+    mastery_percentage: float = 0.0  # 0-100
+    last_revision: Optional[str] = None
+    next_revision: Optional[str] = None
+    notes: Optional[str] = None
+    updated_at: str = Field(default_factory=_now_iso)
+
+
+class KnowledgeNoteUpdate(BaseModel):
+    notes: str = Field(max_length=5000)
+
+
+class KnowledgeConfidenceUpdate(BaseModel):
+    confidence: float = Field(ge=0, le=10)

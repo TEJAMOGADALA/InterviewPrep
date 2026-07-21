@@ -1,0 +1,389 @@
+import { useEffect, useState } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { toast } from 'sonner';
+import {
+  ChevronRight, Loader2, Home, ExternalLink, Clock, Save, Star,
+  Sparkles, BookOpen, MessageSquare, Zap, Bookmark, Flag, ArrowLeft,
+} from 'lucide-react';
+import { GlassCard } from '@/components/common/GlassCard';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import { Slider } from '@/components/ui/slider';
+import { roadmapService } from '@/services/mission.service';
+import { formatApiError } from '@/utils/formatApiError';
+import { TARGET_COMPANIES } from '@/config/companies';
+import { cn } from '@/lib/utils';
+import { formatDistanceToNow, parseISO } from 'date-fns';
+
+const STATUS_TONE = {
+  locked:      'border-white/10 bg-white/[0.03] text-muted-foreground',
+  available:   'border-white/10 bg-white/[0.03] text-muted-foreground',
+  in_progress: 'border-primary/30 bg-primary/10 text-primary',
+  completed:   'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
+  mastered:    'border-emerald-400/40 bg-emerald-400/20 text-emerald-200',
+};
+
+const BUCKET_LABEL = {
+  green:  { label: 'Fresh',   cls: 'text-emerald-300 border-emerald-400/30 bg-emerald-400/10' },
+  yellow: { label: 'Review',  cls: 'text-amber-300 border-amber-400/30 bg-amber-400/10' },
+  red:    { label: 'Weak',    cls: 'text-rose-300 border-rose-400/30 bg-rose-400/10' },
+};
+
+const RESOURCE_TABS = [
+  { key: 'theory',     label: 'Theory',           icon: BookOpen },
+  { key: 'examples',   label: 'Examples',         icon: Sparkles },
+  { key: 'tips',       label: 'Interview Tips',   icon: Flag },
+  { key: 'mistakes',   label: 'Common Mistakes',  icon: Zap },
+  { key: 'articles',   label: 'Articles',         icon: BookOpen },
+  { key: 'videos',     label: 'Videos',           icon: Sparkles },
+  { key: 'flashcards', label: 'Flashcards',       icon: Bookmark },
+];
+
+function starLine(count) {
+  return '★★★★★'.slice(0, count) + '☆☆☆☆☆'.slice(0, 5 - count);
+}
+
+export default function DeepTopicPage() {
+  const { nodeId } = useParams();
+  const navigate = useNavigate();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [notes, setNotes] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [confidence, setConfidence] = useState([0]);
+  const [savingConf, setSavingConf] = useState(false);
+  const [activeTab, setActiveTab] = useState('theory');
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const d = await roadmapService.node(nodeId);
+      setData(d);
+      setNotes(d.notes || '');
+      setConfidence([d.node.progress?.confidence || 0]);
+    } catch (e) {
+      toast.error(formatApiError(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [nodeId]);
+
+  const saveNotes = async () => {
+    setSavingNotes(true);
+    try {
+      await roadmapService.saveNotes(nodeId, notes);
+      toast.success('Notes saved.');
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setSavingNotes(false); }
+  };
+
+  const saveConfidence = async () => {
+    setSavingConf(true);
+    try {
+      await roadmapService.setConfidence(nodeId, confidence[0]);
+      toast.success('Confidence updated.');
+      await load();
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setSavingConf(false); }
+  };
+
+  if (loading || !data) {
+    return (
+      <div className="py-24 flex flex-col items-center gap-3 text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        <span className="overline">Loading topic</span>
+      </div>
+    );
+  }
+
+  const { node, breadcrumb, prerequisites, related, problems, company_importance, activity } = data;
+  const progress = node.progress || {};
+
+  const importanceSorted = Object.entries(company_importance || {})
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1]);
+
+  return (
+    <div className="space-y-6" data-testid="deep-topic-root">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground flex-wrap">
+        <button onClick={() => navigate('/app/knowledge-base')}
+          className="inline-flex items-center gap-1 hover:text-foreground transition-colors">
+          <Home className="h-3 w-3" />
+          Roadmap
+        </button>
+        {breadcrumb.map((b) => (
+          <span key={b.id} className="inline-flex items-center gap-1.5">
+            <ChevronRight className="h-3 w-3" />
+            <Link
+              to={`/app/knowledge-base/nodes/${b.id}`}
+              data-testid={`breadcrumb-${b.id}`}
+              className="hover:text-foreground transition-colors"
+            >
+              {b.label}
+            </Link>
+          </span>
+        ))}
+        <span className="inline-flex items-center gap-1.5">
+          <ChevronRight className="h-3 w-3" />
+          <span className="text-foreground">{node.label}</span>
+        </span>
+      </div>
+
+      {/* Hero */}
+      <GlassCard className="p-6 sm:p-8 relative overflow-hidden" data-testid="topic-hero">
+        <div className="absolute -top-20 -right-20 h-56 w-56 rounded-full bg-primary/10 blur-3xl" />
+        <div className="flex flex-col md:flex-row items-start gap-6">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="overline">{node.type || 'topic'}</span>
+              <span className={cn('text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full border', STATUS_TONE[progress.status || 'available'])}>
+                {(progress.status || 'available').replace('_', ' ')}
+              </span>
+              {progress.revision_bucket && (
+                <span className={cn('text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full border', BUCKET_LABEL[progress.revision_bucket].cls)}>
+                  {BUCKET_LABEL[progress.revision_bucket].label}
+                </span>
+              )}
+            </div>
+            <h1 className="font-display text-3xl sm:text-4xl font-semibold tracking-tight">{node.label}</h1>
+            <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+              {node.pattern && (
+                <span className="font-mono uppercase tracking-wider">Pattern · {node.pattern.replace('_', ' ')}</span>
+              )}
+              {node.difficulty && <span className="capitalize">Difficulty · {node.difficulty}</span>}
+              {node.estimated_minutes ? (
+                <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {node.estimated_minutes}m</span>
+              ) : null}
+            </div>
+            <div className="mt-5 grid grid-cols-3 gap-4 max-w-md">
+              <Stat label="Mastery" value={`${Math.round(progress.mastery_percentage || 0)}%`} />
+              <Stat label="Confidence" value={`${(progress.confidence || 0).toFixed(1)}/10`} />
+              <Stat label="Weakness" value={`${Math.round(progress.weakness_score || 0)}`} />
+            </div>
+          </div>
+
+          {/* Confidence editor */}
+          <GlassCard className="p-4 w-full md:w-72 shrink-0 bg-white/[0.02]">
+            <div className="overline mb-2">Set confidence</div>
+            <div className="flex items-baseline gap-2 mb-3">
+              <span className="font-display text-3xl font-semibold">{confidence[0].toFixed(1)}</span>
+              <span className="text-xs text-muted-foreground">/ 10</span>
+            </div>
+            <Slider
+              value={confidence} onValueChange={setConfidence}
+              min={0} max={10} step={0.5}
+              data-testid="topic-confidence-slider"
+            />
+            <Button
+              onClick={saveConfidence} disabled={savingConf}
+              data-testid="topic-confidence-save"
+              className="mt-4 w-full bg-primary hover:bg-primary/90 btn-primary-glow"
+            >
+              {savingConf ? <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Saving…</> : 'Save'}
+            </Button>
+          </GlassCard>
+        </div>
+      </GlassCard>
+
+      {/* Prerequisites + Related + Company importance */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <GlassCard className="p-6" data-testid="topic-prerequisites">
+          <div className="overline mb-3">Prerequisites</div>
+          {prerequisites.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No prerequisites — you can start here.</p>
+          ) : (
+            <div className="space-y-2">
+              {prerequisites.map((p) => (
+                <Link
+                  key={p.id}
+                  to={`/app/knowledge-base/nodes/${p.id}`}
+                  data-testid={`prereq-${p.id}`}
+                  className="block rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 hover:bg-white/[0.05] transition-colors"
+                >
+                  <div className="text-sm">{p.label}</div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <div className="flex-1 h-1 rounded-full bg-white/[0.05] overflow-hidden">
+                      <div className="h-full bg-primary/70" style={{ width: `${p.progress?.mastery_percentage || 0}%` }} />
+                    </div>
+                    <span className="font-mono text-[10px] text-muted-foreground">
+                      {Math.round(p.progress?.mastery_percentage || 0)}%
+                    </span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </GlassCard>
+
+        <GlassCard className="p-6" data-testid="topic-related">
+          <div className="overline mb-3">Related</div>
+          {related.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No related nodes wired yet.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {related.map((r) => (
+                <Link
+                  key={r.id}
+                  to={`/app/knowledge-base/nodes/${r.id}`}
+                  className="rounded-full border border-white/[0.1] bg-white/[0.03] px-3 py-1.5 text-xs hover:bg-white/[0.06] transition-colors"
+                >
+                  {r.label}
+                </Link>
+              ))}
+            </div>
+          )}
+        </GlassCard>
+
+        <GlassCard className="p-6" data-testid="topic-company-importance">
+          <div className="overline mb-3">Interview importance</div>
+          {importanceSorted.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Not yet mapped.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {importanceSorted.slice(0, 8).map(([cid, val]) => {
+                const meta = TARGET_COMPANIES.find((c) => c.id === cid);
+                return (
+                  <div key={cid} className="flex items-center gap-2 text-sm">
+                    <span className="w-24 truncate">{meta?.name || cid}</span>
+                    <span className="text-amber-400 font-mono tracking-wider">{starLine(val)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </GlassCard>
+      </div>
+
+      {/* Resources tabs */}
+      <GlassCard className="p-6" data-testid="topic-resources">
+        <div className="flex flex-wrap gap-2 mb-4">
+          {RESOURCE_TABS.map((t) => {
+            const Icon = t.icon;
+            const active = activeTab === t.key;
+            return (
+              <button
+                key={t.key} onClick={() => setActiveTab(t.key)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs transition-colors',
+                  active
+                    ? 'border-primary/40 bg-primary/10 text-primary'
+                    : 'border-white/[0.06] bg-white/[0.02] text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.015] p-8 text-center">
+          <Sparkles className="h-5 w-5 text-muted-foreground mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">
+            {RESOURCE_TABS.find((t) => t.key === activeTab)?.label} content will be generated when
+            the AI Mentor (Phase 4) plugs into this node.
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground/70 font-mono">
+            Placeholder · roadmap-driven, ready for content.
+          </p>
+        </div>
+      </GlassCard>
+
+      {/* Linked problems */}
+      {problems && problems.length > 0 && (
+        <GlassCard className="p-6" data-testid="topic-problems">
+          <div className="flex items-center gap-2 mb-4">
+            <Zap className="h-4 w-4 text-primary" />
+            <div className="overline">Linked coding problems</div>
+            <span className="ml-auto text-[11px] font-mono text-muted-foreground">
+              {problems.length} problem{problems.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <div className="divide-y divide-white/[0.05]">
+            {problems.map((p) => (
+              <div key={p.id} className="py-3 flex items-center gap-3 text-sm">
+                <span className={cn(
+                  'text-[10px] font-mono uppercase tracking-wider border rounded-md px-1.5 py-0.5 capitalize',
+                  p.difficulty === 'easy' ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300'
+                  : p.difficulty === 'hard' ? 'border-rose-400/30 bg-rose-400/10 text-rose-300'
+                  : 'border-amber-400/30 bg-amber-400/10 text-amber-300',
+                )}>
+                  {p.difficulty}
+                </span>
+                <span className="flex-1 truncate">{p.title}</span>
+                {p.feedback && (
+                  <span className="text-[11px] font-mono text-muted-foreground hidden sm:inline">
+                    <Star className="inline h-3 w-3 text-amber-400 mr-0.5" />
+                    {p.feedback.confidence}/10
+                  </span>
+                )}
+                <a
+                  href={p.leetcode_url} target="_blank" rel="noreferrer"
+                  data-testid={`topic-problem-open-${p.id}`}
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  <ExternalLink className="h-3 w-3" /> LeetCode
+                </a>
+              </div>
+            ))}
+          </div>
+        </GlassCard>
+      )}
+
+      {/* Personal notes */}
+      <GlassCard className="p-6" data-testid="topic-notes">
+        <div className="flex items-center gap-2 mb-3">
+          <MessageSquare className="h-4 w-4 text-primary" />
+          <div className="overline">Personal notes</div>
+        </div>
+        <Textarea
+          value={notes} onChange={(e) => setNotes(e.target.value)} rows={6}
+          data-testid="topic-notes-input"
+          className="bg-white/[0.03] border-white/10"
+          placeholder="Write your own insights, mnemonics, edge cases…"
+        />
+        <div className="mt-3 flex justify-end">
+          <Button
+            onClick={saveNotes} disabled={savingNotes}
+            data-testid="topic-notes-save"
+            className="bg-primary hover:bg-primary/90 btn-primary-glow"
+          >
+            {savingNotes ? <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Saving…</> : <><Save className="h-3.5 w-3.5 mr-2" />Save notes</>}
+          </Button>
+        </div>
+      </GlassCard>
+
+      {/* Activity */}
+      {activity && activity.length > 0 && (
+        <GlassCard className="p-6" data-testid="topic-activity">
+          <div className="overline mb-4">Activity timeline</div>
+          <div className="relative pl-6">
+            <span className="absolute left-2 top-1 bottom-1 w-px bg-white/10" />
+            {activity.map((e) => (
+              <div key={e.id} className="relative py-2.5">
+                <span className="absolute -left-[22px] top-3.5 h-2.5 w-2.5 rounded-full bg-primary/70 ring-4 ring-background" />
+                <p className="text-sm">{e.title}</p>
+                {e.description && <p className="text-xs text-muted-foreground">{e.description}</p>}
+                <p className="mt-0.5 text-[10px] font-mono text-muted-foreground">
+                  {formatDistanceToNow(parseISO(e.ts), { addSuffix: true })}
+                </p>
+              </div>
+            ))}
+          </div>
+        </GlassCard>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value }) {
+  return (
+    <div>
+      <div className="overline mb-1">{label}</div>
+      <div className="font-display text-xl font-semibold tracking-tight">{value}</div>
+    </div>
+  );
+}

@@ -14,6 +14,7 @@ from auth_utils import hash_password, verify_password
 from routes_auth import router as auth_router
 from routes_user import router as user_router
 from routes_missions import router as missions_router
+from routes_roadmap import router as roadmap_router
 
 # ------------------------- DB -------------------------
 mongo_url = os.environ["MONGO_URL"]
@@ -57,6 +58,7 @@ app.include_router(api_router)
 app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(missions_router)
+app.include_router(roadmap_router)
 
 # ------------------------- Startup -------------------------
 logging.basicConfig(
@@ -90,7 +92,107 @@ async def on_startup():
     await db.problem_feedback.create_index([("user_id", 1), ("pattern", 1)])
     await db.mission_adjustments.create_index([("user_id", 1), ("for_date", -1)])
     await db.weaknesses.create_index([("user_id", 1), ("pattern", 1)])
+    # Roadmap knowledge graph
+    await db.knowledge_nodes.create_index(
+        [("user_id", 1), ("roadmap_version", 1), ("node_id", 1)],
+        unique=True,
+    )
     logger.info("MongoDB indexes ensured.")
+
+    # ---- Roadmap migration: backfill knowledge_nodes from legacy tables ----
+    from roadmap import get_roadmap, CURRENT_VERSION
+    from problem_bank import problem_by_id
+    roadmap = get_roadmap(CURRENT_VERSION)
+
+    async for u in db.users.find({}, {"id": 1, "roadmap_version": 1}):
+        uid = u["id"]
+        if not u.get("roadmap_version"):
+            await db.users.update_one({"id": uid}, {"$set": {"roadmap_version": CURRENT_VERSION}})
+
+        # Backfill track-level knowledge_nodes from existing knowledge_progress
+        kp_cur = db.knowledge_progress.find({"user_id": uid}, {"_id": 0})
+        async for kp in kp_cur:
+            track_id = kp["topic"]  # legacy topic string == track id
+            if not roadmap.get(track_id):
+                continue
+            score = float(kp.get("score", 0))
+            conf = min(10.0, score / 10.0)
+            existing = await db.knowledge_nodes.find_one(
+                {"user_id": uid, "roadmap_version": CURRENT_VERSION, "node_id": track_id},
+                {"_id": 0},
+            )
+            if existing:
+                # Only refresh derived fields — preserve any user notes
+                await db.knowledge_nodes.update_one(
+                    {"user_id": uid, "roadmap_version": CURRENT_VERSION, "node_id": track_id},
+                    {"$set": {
+                        "confidence": conf,
+                        "mastery_percentage": score,
+                        "weakness_score": max(0.0, 100 - score),
+                        "status": "in_progress" if score > 0 else "available",
+                        "revision_bucket": "green" if conf >= 7 else "yellow" if conf >= 4 else "red",
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }},
+                )
+            else:
+                await db.knowledge_nodes.insert_one({
+                    "user_id": uid, "roadmap_version": CURRENT_VERSION,
+                    "node_id": track_id,
+                    "confidence": conf, "mastery_percentage": score,
+                    "weakness_score": max(0.0, 100 - score),
+                    "status": "in_progress" if score > 0 else "available",
+                    "revision_bucket": "green" if conf >= 7 else "yellow" if conf >= 4 else "red",
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "notes": None,
+                })
+
+        # Backfill pattern-level knowledge_nodes from problem_feedback
+        fb_cur = db.problem_feedback.aggregate([
+            {"$match": {"user_id": uid}},
+            {"$group": {
+                "_id": "$pattern",
+                "avg_conf": {"$avg": "$confidence"},
+                "count": {"$sum": 1},
+            }},
+        ])
+        async for row in fb_cur:
+            pat = row["_id"]
+            pattern_nodes = roadmap.by_pattern(pat)
+            if not pattern_nodes:
+                continue
+            nid = pattern_nodes[0]["id"]
+            conf = float(row.get("avg_conf") or 0)
+            mastery = min(100.0, row["count"] * 12.5)
+            weak = max(0.0, 100 - conf * 10)
+            existing = await db.knowledge_nodes.find_one(
+                {"user_id": uid, "roadmap_version": CURRENT_VERSION, "node_id": nid},
+                {"_id": 0},
+            )
+            if existing:
+                await db.knowledge_nodes.update_one(
+                    {"user_id": uid, "roadmap_version": CURRENT_VERSION, "node_id": nid},
+                    {"$set": {
+                        "confidence": round(conf, 2),
+                        "mastery_percentage": round(mastery, 2),
+                        "weakness_score": round(weak, 2),
+                        "status": "in_progress",
+                        "revision_bucket": "green" if conf >= 7 else "yellow" if conf >= 4 else "red",
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }},
+                )
+            else:
+                await db.knowledge_nodes.insert_one({
+                    "user_id": uid, "roadmap_version": CURRENT_VERSION,
+                    "node_id": nid,
+                    "confidence": round(conf, 2),
+                    "mastery_percentage": round(mastery, 2),
+                    "weakness_score": round(weak, 2),
+                    "status": "in_progress",
+                    "revision_bucket": "green" if conf >= 7 else "yellow" if conf >= 4 else "red",
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "notes": None,
+                })
+    logger.info("Roadmap knowledge_nodes backfill complete.")
 
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@prepos.io")
