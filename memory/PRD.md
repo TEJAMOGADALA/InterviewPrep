@@ -210,6 +210,31 @@ Build the production-ready foundation for an AI-powered Interview Operating Syst
 - Admin: `admin@prepos.io / Admin@123`
 - See `/app/memory/test_credentials.md`.
 
+## What's been implemented — 2026-02-22 (iteration 12 · Phase 4 · Mentor drawer + prereq reasoning + 9-card lessons + System Design + Analytics)
+
+**Backend**
+- `ai_mentor/mentor_prompt.py` — MENTOR_IDENTITY strengthened with a hard PREREQUISITE-AWARE REASONING rule. `build_lesson_system_message()` appends `LESSON_INSTRUCTION` requiring strict JSON with 9 sections (executive_summary, core_concept, internal_working, implementation, complexity, interview_insights, common_mistakes, practice_plan, next_learning_path).
+- `ai_mentor/context_builder.py` — `_walk_prereq_chain()` walks `roadmap.prerequisites` transitively (BFS, depth-cap 20), returns full chain + first_incomplete. Chain is embedded in the LLM context ("RECOMMENDED NEXT STEP" line) and surfaced to the UI via `public_preview.recommended_next_step`.
+- `ai_mentor/mentor_service.py` — `answer()` accepts `response_style="chat" | "lesson"`. Lesson mode uses the JSON schema, parses via `_parse_lesson_json` (handles ``` fences and first-brace/last-brace fallback), persists as `structured_content`, gracefully falls back to chat mode if parse fails.
+- `ai_mentor/conversation_store.py` + `models.py` — MentorMessage now persists `style` + `structured_content` so page reloads render the same 9 cards without re-calling Gemini.
+- `mentor_routes.py` — no new routes; existing `/chat` accepts `response_style` field.
+
+**Frontend**
+- New `components/mentor/MentorLessonCards.jsx` — renders 9 lesson cards with distinct icons/accent colours (Sparkles/BookOpen/Layers/Code2/Zap/Building2/AlertTriangle/ListChecks/Route). Practice plan is Easy/Medium/Hard bucketed. Next Learning Path renders a highlighted "Next topic" pill with direct link to `/app/knowledge-base/nodes/{id}`.
+- `components/layout/AIAssistantPanel.jsx` — REWRITTEN. Uses `useMentor` hook, real chat, markdown for chat replies, MentorLessonCards for lesson replies. "Structured lesson (9-card)" toggle above composer. "Recommended next step" banner. Expand button navigates to full page. Listens for `mentor:openWithSeed` window event so any page can preload a prompt.
+- `pages/ai-mentor/AIMentor.jsx` — Composer has lesson-mode toggle (`data-testid=mentor-lesson-mode-toggle`); MessageBubble renders 9 cards when style=lesson; ContextPanel shows Recommended-next-step pill.
+- `hooks/useMentor.js` — `sendMessage(text, {responseStyle, topicNodeId})`.
+- `pages/system-design/SystemDesign.jsx` — REWRITTEN. Reads real roadmap tracks (LLD 199 topics, HLD 584 topics), grouped by module ("DESIGN PRINCIPLES", "DESIGN PATTERNS", "UML & MODELLING", "CASE STUDIES", "SMART SYSTEMS", "OS-INSPIRED"). Each card has Open + Ask-mentor (pre-seeds drawer). Company-specific mock interview buttons at bottom (Google/Meta/Amazon/Microsoft/Uber/Atlassian).
+- `pages/analytics/CommandAnalytics.jsx` — REWRITTEN. KPI cards (streak, readiness %, mission progress, revision due), week heatmap, per-track roadmap progress (aggregated from `/api/roadmap/summary`), topic mastery, company readiness bars, weak/strong areas, recent activity. All values sourced from real endpoints — no placeholders.
+
+**Placeholder killed**: The old top-nav "AI Mentor" drawer that returned _"AI is not yet wired up in this foundation build. Your prompt has been captured — it'll be routed to the Mentor engine in Phase 2."_ is GONE. Verified by testing agent.
+
+**Testing**: iteration_12.json — **100% backend + 100% frontend**, zero action items. Backend pytest 10/10 in `tests/test_iteration12_phase4.py`. Kadane lesson correctly emits Prefix Sum as `next_learning_path.next_topic` (prerequisite-aware).
+
+**Known small papercuts (from testing agent review)**:
+- `/api/settings` PATCH `ai_config` accepts field `model_name`, not `model` (documented for future clients).
+- `model_not_found` error message currently suggests `gemini-flash-latest` / `gemini-3.6-flash` regardless of whether the user is on Gemini direct or Emergent proxy — could be improved to surface provider context.
+
 ## What's been implemented — 2026-02-22 (iteration 11 · Phase 4 · AI Mentor — Central Intelligence Layer)
 ## Prioritized backlog
 
