@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="6" skipped="0" tests="6" time="1.635" timestamp="2026-07-22T07:48:51.977185+00:00" hostname="agent-env-cbe30b1a-3b3e-486f-be4b-3db83089a668"><testcase classname="tests.test_kb_related_prereqs" name="test_kadane_node_related_populated" time="0.619"><failure message="AssertionError: {&quot;detail&quot;:&quot;Invalid token&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">backend/tests/test_kb_related_prereqs.py:27: in test_kadane_node_related_populated
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Invalid token"}
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="tests.test_kb_related_prereqs" name="test_prefix_sum_node_prereqs_and_related" time="0.132"><failure message="AssertionError: {&quot;detail&quot;:&quot;Invalid token&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">backend/tests/test_kb_related_prereqs.py:41: in test_prefix_sum_node_prereqs_and_related
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Invalid token"}
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="tests.test_kb_related_prereqs" name="test_traversal_related_via_reverse_prereq" time="0.136"><failure message="AssertionError: {&quot;detail&quot;:&quot;Invalid token&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">backend/tests/test_kb_related_prereqs.py:53: in test_traversal_related_via_reverse_prereq
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Invalid token"}
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="tests.test_kb_related_prereqs" name="test_roadmap_tracks_endpoint" time="0.100"><failure message="assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">backend/tests/test_kb_related_prereqs.py:65: in test_roadmap_tracks_endpoint
+    assert r.status_code == 200
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="tests.test_kb_related_prereqs" name="test_settings_has_model" time="0.088"><failure message="assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">backend/tests/test_kb_related_prereqs.py:77: in test_settings_has_model
+    assert r.status_code == 200
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="tests.test_kb_related_prereqs" name="test_ai_generation_java_exceptions" time="0.109"><failure message="AssertionError: {&quot;detail&quot;:&quot;Invalid token&quot;}&#10;assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">backend/tests/test_kb_related_prereqs.py:94: in test_ai_generation_java_exceptions
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Invalid token"}
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase></testsuite></testsuites>

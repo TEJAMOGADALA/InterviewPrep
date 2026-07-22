@@ -2276,6 +2276,77 @@ def _collect_all_nodes(tracks: list[dict]) -> list[dict]:
     return out
 
 
+def _auto_link_related(tracks: list[dict], all_nodes: list[dict]) -> None:
+    """Populate `related` for every node so the Deep Topic UI has real edges.
+
+    Three signal sources, deduped and capped to keep the UI readable:
+      1. Sibling nodes at the same level (same immediate parent).
+      2. Pattern-mates across the whole graph (same `pattern` field).
+      3. Reverse prerequisite edges — if A prereqs B, then A is related to B.
+    """
+    by_id = {n["id"]: n for n in all_nodes}
+
+    # Build parent → children map.
+    parent_of: dict[str, str] = {}
+
+    def index_children(parent_id: str, kids: list[dict]) -> None:
+        for k in kids or []:
+            parent_of[k["id"]] = parent_id
+            for key in ("modules", "topics", "subtopics", "learning_nodes"):
+                index_children(k["id"], k.get(key) or [])
+
+    for t in tracks:
+        for key in ("modules", "topics", "subtopics", "learning_nodes"):
+            index_children(t["id"], t.get(key) or [])
+
+    # 1. Sibling links.
+    siblings_by_parent: dict[str, list[str]] = {}
+    for nid, pid in parent_of.items():
+        siblings_by_parent.setdefault(pid, []).append(nid)
+
+    # 2. Pattern buckets.
+    pattern_buckets: dict[str, list[str]] = {}
+    for n in all_nodes:
+        pat = n.get("pattern")
+        if pat:
+            pattern_buckets.setdefault(pat, []).append(n["id"])
+
+    # 3. Reverse prereq edges.
+    reverse_prereqs: dict[str, list[str]] = {}
+    for n in all_nodes:
+        for pre in n.get("prerequisites") or []:
+            reverse_prereqs.setdefault(pre, []).append(n["id"])
+
+    LEAF_LEVELS = {"topic", "subtopic", "node"}
+    MAX_RELATED = 8
+
+    for n in all_nodes:
+        if n.get("level") not in LEAF_LEVELS:
+            continue
+        already = set(n.get("related") or [])
+        pid = parent_of.get(n["id"])
+        siblings = [x for x in siblings_by_parent.get(pid, []) if x != n["id"]] if pid else []
+        pattern_mates = [x for x in pattern_buckets.get(n.get("pattern") or "", []) if x != n["id"]]
+        rev = reverse_prereqs.get(n["id"], [])
+
+        # Merge in priority order: reverse-deps first (strongest signal),
+        # then siblings, then pattern-mates. Dedup and cap.
+        ordered: list[str] = []
+        for src in (rev, siblings, pattern_mates):
+            for x in src:
+                if x in already or x in ordered:
+                    continue
+                if x not in by_id:
+                    continue
+                ordered.append(x)
+                if len(ordered) >= MAX_RELATED:
+                    break
+            if len(ordered) >= MAX_RELATED:
+                break
+
+        n["related"] = list(n.get("related") or []) + ordered
+
+
 def build() -> dict:
     for track in TRACKS:
         _walk_and_stamp(track)
@@ -2292,6 +2363,7 @@ def build() -> dict:
             seen.add(n["id"])
         raise ValueError(f"Duplicate node ids: {dupes}")
     _validate_dag(ids, all_nodes)
+    _auto_link_related(TRACKS, all_nodes)
 
     return {
         "version": VERSION,
