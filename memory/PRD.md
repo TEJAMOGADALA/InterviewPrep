@@ -81,6 +81,22 @@ Build the production-ready foundation for an AI-powered Interview Operating Syst
 - **New DB collections + indexes**: problem_assignments (by user+mission, user+pattern), problem_feedback (by user+time), mission_adjustments (by user+date), weaknesses (by user+pattern).
 - **Testing**: 15/15 iteration-3 pytest passing + 15/15 iter2 + 15/15 iter1. Frontend Playwright validated task-toggle style, Company Readiness, drill-down, Coding Arena feedback dialog, Practice More, LeetCode links.
 
+## What's been implemented — 2026-02-01 (iteration 8 · AI Knowledge Base Generation)
+- **Modular AI backend** — three new files:
+  - `/app/backend/ai_service.py` — provider-agnostic LLM shim wrapping `emergentintegrations.LlmChat`; classifies raw SDK errors into `missing_key | invalid_key | rate_limit | upstream | parse_error | unknown` for user-facing messaging.
+  - `/app/backend/prompt_builder.py` — strict-JSON system + user prompt; builds a compact neighbor context (prereqs + related + siblings) so the model wires responses back to real roadmap ids; `parse_content()` gracefully recovers from code fences and partial JSON.
+  - `/app/backend/knowledge_generation.py` — Mongo-cached orchestrator. Cache scope is **GLOBAL per (node_id, roadmap_version)** in the `knowledge_content` collection, so the first user's Gemini spend benefits everyone. Reads `ai_config` from `db.settings` (per user's Settings page).
+- **Model**: `KnowledgeContent` added to `models.py`.
+- **3 new endpoints** on the roadmap router:
+  - `GET  /api/roadmap/nodes/{id}/content` — read-only cache lookup; never triggers Gemini.
+  - `POST /api/roadmap/nodes/{id}/content/generate` — lazy generate + cache; no-op on cache hit.
+  - `POST /api/roadmap/nodes/{id}/content/regenerate` — clears cache row and re-calls Gemini.
+- **Error mapping**: missing_key → 400, invalid_key → 401, rate_limit → 429, upstream/parse_error → 502, not_found → 404 — with a friendly `detail.error` + `detail.message` shape for the frontend.
+- **Frontend**: new self-contained component `/app/frontend/src/components/knowledge/AIContentTabs.jsx` renders 7 AI-populated tabs (Theory / Examples / Interview Tips / Common Mistakes / Flashcards / Related Topics / Prerequisites) + 2 intentional stubs (Articles / Videos). Empty-state CTA calls `/generate`. If the API key is missing/invalid, an inline banner appears with a `Open Settings` link — no crash. Related/Prereq entries deep-link to `/app/knowledge-base/nodes/{id}` when the model returns a real roadmap id. Flashcards support tap-to-reveal.
+- **`DeepTopicPage`** placeholder block replaced with `<AIContentTabs nodeId={node.id} />` — no other layout change.
+- **Model default**: `gemini-2.5-flash` (respects whatever user picks in Settings).
+- **Tests**: 22/22 pytest cases pass covering read-only cache, unknown-node 404, missing_key path, happy-path via emergent universal key, cache-hit idempotency (generated_at unchanged), regenerate updates timestamp, related/prereq id resolution, second-node proves node-agnostic prompt, full regression on all previously-shipped endpoints. Frontend smoke via Playwright verified all data-testids render. Report: `/app/test_reports/iteration_7.json`.
+
 ## What's been implemented — 2026-02-01 (iteration 7 · Intelligent Progress Tracking)
 - **Roadmap grew 1043 → 1085 nodes; 7 → 10 tracks** — added **Projects**, **Behavioral** and **Resume / LinkedIn** tracks with 5-10 starter nodes each. Zero UI redesign; the same tree engine renders them.
 - **Normalized status vocabulary** across the whole app: `not_started | in_progress | completed | mastered | revision_due`. Legacy `available`/`locked` rows keep working — they're mapped to `not_started` on read. `revision_due` is **derived** when a completed/mastered node's `next_revision` is in the past.
