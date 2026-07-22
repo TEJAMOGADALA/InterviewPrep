@@ -13,7 +13,7 @@ Verify:
 
 ## Step 2: API Testing
 ```
-BASE=https://ai-interview-base.preview.emergentagent.com
+BASE=https://coding-prep-ai-1.preview.emergentagent.com
 
 # Register
 curl -c cookies.txt -X POST $BASE/api/auth/register \

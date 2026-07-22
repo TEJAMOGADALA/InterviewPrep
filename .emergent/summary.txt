@@ -1,0 +1,134 @@
+<analysis>**original_problem_statement**: 
+The user is building **PrepOS**, an AI-powered Interview Operating System for Software Engineers preparing for top Product-Based Companies. 
+PRODUCT REQUIREMENTS: 
+1. Massively expand the  curriculum data covering DSA, Java, LLD, HLD, OS, Databases, and Computer Networks without breaking existing UI or logic. 
+2. Implement Intelligent Progress Tracking (multi-level rollups, explicit node statuses, bookmarks, dashboard integration, lazy-loaded tree).
+3. Implement AI-powered Knowledge Base generation using the Gemini API (lazy generation of Theory, Examples, Interview Tips, Common Mistakes, Flashcards, Prerequisites, Related Topics) with MongoDB caching.
+4. Stabilize AI Generation pipeline by fixing error classification bugs and preventing HTTP 500 crashes.
+
+**User's preferred language**: English
+(INSTRUCT NEXT AGENT: You MUST respond in English only)
+
+**what currently exists?**: 
+A fully functional React + FastAPI + MongoDB application with JWT Auth. It features a complete Onboarding Wizard, an Adaptive Mission Engine (with Spaced Repetition and Streaks), a Coding Arena, and a highly expanded Roadmap Engine (1085 nodes across 10 tracks). It has Intelligent Progress Tracking (recursive completion %, revision due tracking) and an AI Knowledge Base that lazily generates content via Gemini and caches it globally in MongoDB. The UI is built using a dark-first SaaS aesthetic.
+
+**Last working item**:
+- Last item agent was working: Fixing an HTTP 500 Internal Server Error in the AI Generation pipeline. The bug was caused by a bare  that circumvented the  error mapping function in , combined with the user requesting a deprecated model (). 
+- Status: USER VERIFICATION PENDING
+- Agent Testing Done: Y
+- Which testing method agent to use?: NA (testing is already done via  returning 18/18 passes).
+- User Testing Done: N
+
+**All Pending/In progress Issue list**:
+None. All major stability issues in the AI Knowledge Generation pipeline have been fixed and tested.
+
+**In progress Task List**:
+None.
+
+**Upcoming and Future Tasks**:
+- P0: Convert the Model Name text field in Settings into a dynamic dropdown by fetching available Gemini models () to prevent users from inputting deprecated model names.
+- P1: Wire Mission Engine to the new progress metadata (preferentially pick  and high  weak nodes for daily missions).
+- P1: Sidebar quick-access surfaces (Views for Bookmarked nodes, Favorite nodes, and Revision Due queue).
+- P1: Company Readiness Dashboard (Calculate a readiness metric per company based on mastery and company importance).
+- P2: AI Mentor chat (Persistent chat sidebar grounded in  context).
+- P2: Analytics engine (topic velocity, retention curves based on ProblemFeedback).
+- P2: Mock Interview flow and Resume AI review.
+
+**Completed work in this session**:
+- Expanded Roadmap to 329 nodes (DSA, Java, etc.) via  (DONE)
+- Expanded Roadmap to 1043 nodes (LLD Patterns, HLD Case Studies) (DONE)
+- Intelligent Progress Tracking: Tracks for Projects, Behavioral, Resume added (1085 nodes total) (DONE)
+- Frontend Progress Components: StatusBadge, ProgressBar, FilterChips, NodeActions, CategoryStats (DONE)
+- AI Knowledge Base Backend: , ,  using  (DONE)
+- AI Knowledge Base Frontend: , ,  (DONE)
+- AI Stabilization: Fixed  substring matching bug that mislabeled errors as rate limits (DONE)
+- AI Bugfix: Restored  to prevent HTTP 500 errors on invalid/deprecated LLM models (DONE)
+
+**Earlier issues found/mentioned but not fixed**:
+None.
+
+**Known issue recurrence from previous fork**:
+- Issue recurrence in previous fork: Flaky test in  due to set-ordering non-determinism.
+- Recurrence count: 1
+- Status: NOT STARTED (Documented as an optional fix to sort  before picking).
+
+**Code Architecture**:
+
+
+**Key Technical Concepts**:
+React, Vite/CRA, Tailwind CSS, shadcn/ui, FastAPI, MongoDB, Spaced Repetition Algorithms, Deterministic RNG, Tree Data Structures,  LLM wrapper, lazy-loaded global caching.
+
+**key DB schema**:
+- : Extended with , , , , , , , .
+- : 
+
+**changes in tech stack**:
+None. Continues to use MongoDB + FastAPI + React. AI generation uses  (Universal Key).
+
+**All files of reference**:
+-  (Script to build the massive roadmap graph)
+-  (Generated graph)
+-  (LLM communication and error classification)
+-  (Cache coordination for AI requests)
+-  (Frontend viewer for Gemini output)
+-  (Summary cards)
+
+**Areas that need refactoring**:
+- : Loading all 1085 nodes and hydrating progress per request might become expensive. Consider a per-(user, roadmap_version) server-side cache.
+
+**key api endpoints**:
+- : Dashboard rollups and Interview Readiness %.
+- : Explicit status transition + stamps completion/revision dates.
+- : Cache-only read for AI content.
+- : Lazy generation via Gemini.
+
+**Critical Info for New Agent**:
+- **AI Integrations**: Do NOT implement 3rd party API calls natively; always rely on  and  for LLMs. The app is set up to use the Emergent LLM Key.
+- **Error Handling**: Do NOT use raw substring matching (like ) as it falsely flags words like generate. This was just fixed.
+- **Webpack Limit**: Avoid deep recursive JSX when rendering the roadmap tree to prevent Maximum call stack size exceeded errors. Iterate instead.
+- Do NOT rewrite or regenerate  via direct file edits; always modify  and execute it.
+
+**documents and test reports created in this job**:
+-  (Updated comprehensively with app state)
+-  through 
+
+**Last 10 User Messages and any pending HUMAN messages**:
+1. (User) Asked to upgrade LLD and HLD topics in Knowledge base.
+2. (Agent) Implemented and expanded roadmap_v1.json to 1043 nodes.
+3. (User) Asked to implement intelligent progress tracking (completion %, topic states, dashboard).
+4. (Agent) Completed progress tracking features (1085 nodes).
+5. (User) Asked to implement AI-powered Knowledge Base generation using Gemini API with caching.
+6. (Agent) Implemented Gemini content generation, integrated MongoDB cache, exposed endpoints.
+7. (User) Prompted Stabilization Sprint 1 - AI Generation was showing Gemini rate/quota limit reached falsely. Asked to diagnose, fix, and clean up Knowledge Page UI.
+8. (Agent) Diagnosed bug in substring matching  and separated UI cards.
+9. (User) Bug report: Clicking Generate with AI now throws an HTTP 500 Internal Server Error. Instructed to trace  and add logs if not found.
+10. (Agent) Found that a debug patch replaced  with . Fixed the issue, updated the error message regarding deprecated models, and successfully tested it.
+
+**Project Health Check**:
+Healthy.
+
+**3rd Party Integrations**:
+- Gemini 2.5 Flash via  (OpenAI/Anthropic compatible setup) — uses **Emergent LLM Key**.
+
+**Testing status**:
+- Testing agent used after significant changes: YES (Used for Iterations 4, 5, 6, 7, 8, and 9)
+- Troubleshoot agent used after agent stuck in loop: NO
+- Test files created: , , 
+- Known regressions: None currently blocking. 1 flaky test pre-exists.
+
+**Credentials to test flow**:
+Check .
+Primary user: 
+Admin: 
+
+**What agent forgot to execute**:
+Nothing. All tasks, UI modifications, and specific diagnostic debugging instructions were executed successfully.
+
+**Debugging checklist for current issue**:
+Issue: Validating the AI Knowledge Base pipeline stability on frontend.
+Frontend files to check: 
+- 
+- 
+Backend files to check: 
+-  (Ensure  handles exceptions correctly)
+- </analysis>

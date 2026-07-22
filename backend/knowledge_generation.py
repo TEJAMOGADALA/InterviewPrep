@@ -54,7 +54,7 @@ async def _load_ai_config(db, user_id: str) -> dict:
     ai = doc.get("ai_config") or {}
     return {
         "provider": ai.get("provider") or "gemini",
-        "model_name": ai.get("model_name") or "gemini-2.5-flash",
+        "model_name": ai.get("model_name") or "gemini-flash-latest",
         "api_key": ai.get("api_key") or None,
         "temperature": float(ai.get("temperature") if ai.get("temperature") is not None else 0.7),
     }

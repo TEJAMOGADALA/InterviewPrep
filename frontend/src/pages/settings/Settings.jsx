@@ -21,10 +21,22 @@ import { Loader2, Save, KeyRound } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const AI_PROVIDERS = [
-  { id: 'gemini',   label: 'Google Gemini', active: true,  model: 'gemini-2.5-flash' },
+  { id: 'gemini',   label: 'Google Gemini', active: true,  model: 'gemini-flash-latest' },
   { id: 'openai',   label: 'OpenAI',        active: false, model: 'gpt-5.2' },
   { id: 'claude',   label: 'Anthropic Claude', active: false, model: 'claude-sonnet-4.5' },
   { id: 'deepseek', label: 'DeepSeek',      active: false, model: 'deepseek-chat' },
+];
+
+// Curated list of Gemini models that work reliably for content generation.
+// Aliases (`*-latest`) are safest — Google routes them to a supported model
+// automatically as older versions get deprecated for new API keys.
+const GEMINI_MODELS = [
+  { id: 'gemini-flash-latest',   label: 'gemini-flash-latest',   hint: 'Recommended · always points to the latest Flash' },
+  { id: 'gemini-pro-latest',     label: 'gemini-pro-latest',     hint: 'Higher quality · slower · more quota' },
+  { id: 'gemini-flash-lite-latest', label: 'gemini-flash-lite-latest', hint: 'Cheapest · fastest' },
+  { id: 'gemini-3.6-flash',      label: 'gemini-3.6-flash',      hint: 'Pinned latest-gen Flash' },
+  { id: 'gemini-3.5-flash',      label: 'gemini-3.5-flash',      hint: 'Pinned Gemini 3.5 Flash' },
+  { id: 'gemini-2.0-flash',      label: 'gemini-2.0-flash',      hint: 'Older Flash · lower free-tier quota' },
 ];
 
 export default function Settings() {
@@ -254,12 +266,35 @@ export default function Settings() {
 
             <div>
               <Label className="mb-1.5 block text-xs font-mono uppercase tracking-wider text-muted-foreground">Model</Label>
-              <Input
-                value={settings.ai_config.model_name}
-                onChange={(e) => patchAI({ model_name: e.target.value })}
-                data-testid={SETTINGS.aiModelInput}
-                className="bg-white/[0.03] border-white/10 font-mono"
-              />
+              <Select
+                value={
+                  GEMINI_MODELS.find((m) => m.id === settings.ai_config.model_name)
+                    ? settings.ai_config.model_name
+                    : 'gemini-flash-latest'
+                }
+                onValueChange={(v) => patchAI({ model_name: v })}
+              >
+                <SelectTrigger data-testid={SETTINGS.aiModelInput} className="bg-white/[0.03] border-white/10 font-mono">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[hsl(var(--surface))]/95 border-white/10 backdrop-blur-xl">
+                  {GEMINI_MODELS.map((m) => (
+                    <SelectItem key={m.id} value={m.id} className="font-mono">
+                      <div className="flex flex-col">
+                        <span>{m.label}</span>
+                        <span className="text-xs text-muted-foreground font-sans">{m.hint}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {settings.ai_config.model_name &&
+                !GEMINI_MODELS.find((m) => m.id === settings.ai_config.model_name) && (
+                <p className="mt-1.5 text-xs text-amber-400/90">
+                  Your saved model <span className="font-mono">{settings.ai_config.model_name}</span> is
+                  deprecated for new API keys. Pick one above and Save.
+                </p>
+              )}
             </div>
 
             <div>

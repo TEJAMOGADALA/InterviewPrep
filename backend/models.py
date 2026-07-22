@@ -88,7 +88,7 @@ class OnboardingRecord(BaseModel):
 
 class AIConfig(BaseModel):
     provider: str = "gemini"  # gemini | openai | claude | deepseek
-    model_name: str = "gemini-2.5-flash"
+    model_name: str = "gemini-flash-latest"
     api_key: Optional[str] = None
     temperature: float = Field(default=0.7, ge=0, le=2)
 
@@ -308,7 +308,7 @@ class KnowledgeContent(BaseModel):
     node_id: str
     roadmap_version: str = "v1"
     provider: str = "gemini"
-    model_name: str = "gemini-2.5-flash"
+    model_name: str = "gemini-flash-latest"
     # The generated payload — one nested dict per Section.
     # Shape is validated by prompt_builder.parse_content().
     theory: Optional[dict] = None

@@ -91,7 +91,7 @@ def _classify(err: Exception) -> AIProviderError:
     if cls_name in ("NotFoundError",):
         return AIProviderError(
             "The selected Gemini model isn't available for this API key. "
-            "Try `gemini-2.5-flash` or `gemini-2.0-flash` in Settings.",
+            "Try `gemini-flash-latest` or `gemini-3.6-flash` in Settings.",
             kind="model_not_found", status_code=404,
         )
     if cls_name in ("RateLimitError",):
@@ -119,7 +119,7 @@ def _classify(err: Exception) -> AIProviderError:
     if _match_any(_MODEL_MISSING_PATTERNS, msg):
         return AIProviderError(
             "The selected Gemini model isn't available for this API key. "
-            "Try `gemini-2.5-flash` or `gemini-2.0-flash` in Settings.",
+            "Try `gemini-flash-latest` or `gemini-3.6-flash` in Settings.",
             kind="model_not_found", status_code=404,
         )
     if _match_any(_RATE_LIMIT_PATTERNS, msg):
