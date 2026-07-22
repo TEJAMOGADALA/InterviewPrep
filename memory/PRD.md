@@ -210,14 +210,48 @@ Build the production-ready foundation for an AI-powered Interview Operating Syst
 - Admin: `admin@prepos.io / Admin@123`
 - See `/app/memory/test_credentials.md`.
 
+## What's been implemented — 2026-02-22 (iteration 11 · Phase 4 · AI Mentor — Central Intelligence Layer)
 ## Prioritized backlog
 
-### P0 — Next drop (Phase 4)
-- **Wire real AI Mentor to Gemini** (using per-user API key from Settings) — AI now has rich adaptive data (feedback, weaknesses, confidence) to consult.
-- **Consume the expanded roadmap metadata** in the Mission Engine, AI Mentor and Analytics — company_importance, mastery_weight and interview_frequency are now available on every node.
-- **Knowledge Base content**: fill in Theory / Examples / Videos / Flashcards placeholders (currently intentionally empty on every node).
-- **LLD/HLD case-study library** + interactive canvas.
-- **Analytics engine**: topic velocity, focus quality, retention curves powered by ProblemFeedback + ActivityEvent.
+### P0 — Next drop (Phase 5)
+- **Streaming for AI Mentor** — replace `mentor_service._call_llm` with a streamed variant + SSE endpoint; UI already ready for token-by-token render.
+- **Rewire Mission Engine to reuse `ai_mentor.mentor_service`** for its daily task narrative + weak-area coaching. Kill any parallel LLM integration in mission code.
+- **Company Readiness Dashboard**: per-target-company readiness metric using mastery × company_importance × interview_frequency.
+- **Mock Interview flow** — chained mentor turns with rubric grading grounded in target company.
+
+
+
+**Goal**: Add PrepOS Mentor as the reusable intelligence layer for future features (missions, mock interviews, resume review, revision planner) — not a chatbot, not ChatGPT inside the app.
+
+**Module**: `backend/ai_mentor/` — decoupled from Knowledge Base; consumes it read-only.
+
+- `models.py` — `MentorConversation`, `MentorMessage`, `ChatRequest/Response`, `ConversationDetail`, `NewChatRequest`.
+- `mentor_prompt.py` — `MENTOR_IDENTITY` (senior-engineer voice, no chatbot disclaimers, structured markdown), `build_system_message()`, `build_user_message()` (KB block goes BEFORE the question so the LLM expands rather than restates), `summarise_title()` (deterministic — no LLM call for titles).
+- `context_builder.py` — `build_context()` gathers 10 signals: user profile (name, target companies, position, target date, hours/week, skill), roadmap version, aggregate progress, weak topics (top 5), strong topics (top 5), today's mission, revision queue (top 5 due), recent activity (6), recently generated KB (5), current topic w/ cached KB block, recent notes (5). All reads only; degrades gracefully on missing sources. `serialize_context()` (system slot) and `current_topic_kb_block()` (user slot) split.
+- `conversation_store.py` — CRUD on `mentor_conversations` + `mentor_messages`, cascade delete of messages.
+- `mentor_service.py` — `answer()` orchestrates: ensure/create conversation → persist user turn → build context → load ai_config → call `ai_service.complete_json` (REUSED, no duplication) → persist assistant turn → auto-rename first-turn conversations. `_call_llm` wraps `complete_json` so streaming can be added later without touching the rest of the stack.
+- `mentor_routes.py` — `POST /api/mentor/chat` · `POST /api/mentor/new-chat` · `GET /api/mentor/history` · `GET /api/mentor/conversation/{id}` · `DELETE /api/mentor/conversation/{id}` · `GET /api/mentor/context/preview` (powers the "Mentor knows about you" UI card).
+
+**Frontend**:
+- `pages/ai-mentor/AIMentor.jsx` — full chat UI with sidebar history + Mentor Context panel + markdown message list + auto-growing composer + 4 starter prompt cards on empty state. Reuses `GlassCard`, existing design language.
+- `hooks/useMentor.js` — history load, transcript load, optimistic send, delete, new-chat, initial context preview fetch.
+- `constants/testIds/prepos.js` — `MENTOR` test-ids added.
+
+**DB**: New collections `mentor_conversations` and `mentor_messages` with indexes on `(user_id, updated_at desc)` and `(conversation_id, created_at asc)`.
+
+**Testing**: `tests/test_iteration11_ai_mentor.py` — 10/10 pass covering real Gemini chat, follow-up memory (last 16 turns), KB injection for Kadane, history, conversation detail, new-chat, delete cascade, missing_key 400, context preview. Frontend flow 100% (iteration_11.json).
+
+**Design notes**:
+- The mentor NEVER regenerates a topic that already has cached KB — the KB block is injected verbatim into the user turn and the mentor expands on it. Cheap and consistent.
+- Streaming is not enabled yet but the architecture supports it (swap `_call_llm` for a generator variant).
+- No changes to Auth, Missions, KB generation, Roadmap, Progress, Settings, or any existing route — pure additive.
+
+## What's been implemented — 2026-02-22 (iteration 10 · Knowledge Base Prereq/Related)
+
+- Added `_auto_link_related()` post-processor in `scripts/generate_roadmap.py` — populates `related` for every leaf node from three signals (dedup, cap 8): reverse prerequisite edges (strongest), sibling nodes, pattern-mates. Regenerated `roadmap_v1.json`: **1008/1011 leaf nodes now carry Related links** (previously ~0). Fixed the DeepTopicPage empty "No related nodes wired yet." state.
+- Fixed Gemini `model_not_found` (Google deprecated `gemini-2.5-flash` for new API keys). Default → `gemini-flash-latest`, Settings input converted to a curated Select dropdown, 302 user DB records migrated. Verified: real Gemini call with user's own auth key returns full KB payload in ~22s.
+
+
 
 ### P1
 - Mock interview flow (voice / text) using feedback signals.
