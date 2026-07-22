@@ -1,0 +1,26 @@
+{
+  "summary": "Phase 4 continuation validated end-to-end. Backend pytest 10/10 pass (context/preview.recommended_next_step key exists; chat default-style returns markdown+style='chat'+structured_content=null; response_style='lesson' returns style='lesson' + structured_content dict with all 9 keys; Kadane lesson correctly emits Prefix Sum as next_learning_path — prerequisite-aware; /api/roadmap contains 199 LLD topics + 584 HLD topics via `children` recursion; /api/dashboard + /api/roadmap/summary healthy; history/detail/delete regression OK; KB generate route present). Frontend: (a) top-nav AI Mentor drawer opens, OLD 'AI is not yet wired up' placeholder is GONE, new 'PrepOS Mentor. I know your progress...' intro shown, Structured lesson (9-card) checkbox present, composer sends → assistant reply, Expand button correctly navigates to /app/ai-mentor. (b) Drawer lesson mode: Teach me HashMap → renders ALL 9 lesson headings (Executive Summary/Core Concept/Internal Working/Implementation/Complexity/Interview Insights/Common Mistakes/Practice Plan/Next Learning Path). (c) /app/ai-mentor: lesson toggle (data-testid=mentor-lesson-mode-toggle) works, 'Teach me Kadane as a structured lesson' renders 9 cards inside mentor-message-assistant, next_learning_path.next_topic=Prefix Sum (prerequisite-aware verified). (d) /app/system-design: LLD tab shows 199 topics grouped by DESIGN PRINCIPLES / DESIGN PATTERNS / UML & MODELLING / CASE STUDIES / SMART SYSTEMS / OS-INSPIRED with 51 Open + 51 Ask mentor buttons in view (deep list). Ask mentor pre-seeds drawer with 'Teach me SOLID Principles as a structured lesson.' Mock @ Google pre-seeds drawer with 'Act as a Senior Google interviewer and run a mock system design round with me. Grade my answer.' (e) /app/analytics: all KPI cards render with real values — Current Streak 0d, Interview Readiness 49%, Today's Mission 0/2, Revision Due 0, This Week's Activity heatmap, Roadmap Progress 1/900, Topic Mastery (DSA/Java/LLD/HLD/OS/CN/DBMS bars), Company Readiness (Google target + MS/Amazon/Adobe/Atlassian/Stripe), Weak/Strong Areas, Track-by-Track Roadmap Progress. NO placeholder copy other than intentional subtitle 'no placeholders'.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration12_phase4.py",
+    "/app/test_reports/pytest/iteration12.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Settings PATCH ai_config accepts the field name `model_name` — NOT `model`. If any client (docs/UI) sends `model`, it will be silently dropped and the previous value retained. Suggest either accepting both keys or documenting explicitly. Encountered while running tests: PATCH echoed old model_name back with 200 while my payload keyed on `model`.",
+    "LlmChat/LiteLLM error mapping to `model_not_found` (HTTP 404) is triggered for BOTH Gemini native invalid-model AND LiteLLM proxy BadRequest — friendly message tells user to try `gemini-flash-latest` even when using Emergent proxy, which lists different models. Consider surfacing provider context (`gemini direct` vs `emergent proxy`) in the error hint.",
+    "context_builder + mentor_service integration confirmed prerequisite-aware: Kadane lesson emits next_topic=Prefix Sum matching roadmap prereq chain — solid.",
+    "System Design page: 51 topic cards rendered in a single scroll — good density; consider virtualisation for 199/584 lists if performance becomes an issue on slower devices."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration12_phase4.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@prepos.io / Admin@123. Gemini free-tier quota exhausted during testing → tests use Emergent proxy fallback: {provider:'gemini', model_name:'gemini-2.5-flash', api_key:'sk-emergent-aEa152aE36c979b48F'}. Admin's ai_config restored to gemini-flash-latest + real Gemini key after tests.",
+  "seed_data_creation": "Tests created ~5 mentor_conversations under admin during lesson/chat runs; not cleaned up (matches previous iterations). Delete-cascade regression test cleans up its own convo.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "IMPORTANT: /api/settings PATCH uses `model_name` NOT `model` in ai_config. If Gemini direct hits 429 (very common on the free tier used here), fall back to Emergent proxy: {provider:'gemini', model_name:'gemini-2.5-flash', api_key:'sk-emergent-aEa152aE36c979b48F'}. Do NOT use `model:'gemini-2.5-flash'` — it will silently no-op. Roadmap tree uses recursive `children` field (types: track→module→topic→subtopic→node), NOT flat `modules`+`topics`. Lesson mode assertion keys: executive_summary, core_concept, internal_working, implementation, complexity, interview_insights, common_mistakes, practice_plan, next_learning_path. Frontend testids: mentor-lesson-mode-toggle (on /app/ai-mentor composer), mentor-message-assistant (assistant lesson bubble). System Design uses roadmap tracks lld+hld with children recursion; grouped by module label uppercase (DESIGN PRINCIPLES, DESIGN PATTERNS, UML & MODELLING, CASE STUDIES, SMART SYSTEMS, OS-INSPIRED).",
+  "rca of the issue": "N/A — all features work as designed."
+}

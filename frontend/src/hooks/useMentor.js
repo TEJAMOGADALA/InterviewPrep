@@ -77,7 +77,7 @@ export function useMentor() {
     }
   }, [refreshHistory]);
 
-  const sendMessage = useCallback(async (text, { topicNodeId } = {}) => {
+  const sendMessage = useCallback(async (text, { topicNodeId, responseStyle } = {}) => {
     const trimmed = (text || '').trim();
     if (!trimmed) return;
     setSending(true);
@@ -100,6 +100,7 @@ export function useMentor() {
         message: trimmed,
         conversation_id: activeId || undefined,
         topic_node_id: topicNodeId || undefined,
+        response_style: responseStyle || 'chat',
       });
       setActiveId(data.conversation_id);
       setConversation(data.conversation);

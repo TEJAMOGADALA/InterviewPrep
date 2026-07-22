@@ -5,16 +5,16 @@ import remarkGfm from 'remark-gfm';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import {
   Sparkles, Send, Plus, Trash2, Loader2, MessageSquare,
-  Target, TrendingDown, TrendingUp, BookOpen, AlertTriangle,
+  Target, TrendingDown, TrendingUp, BookOpen, AlertTriangle, Route,
 } from 'lucide-react';
 import { GlassCard } from '@/components/common/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { MENTOR } from '@/constants/testIds';
 import useMentor from '@/hooks/useMentor';
+import { MentorLessonCards } from '@/components/mentor/MentorLessonCards';
 
 // ---------- Sidebar ----------
 
@@ -135,6 +135,15 @@ function ContextPanel({ preview }) {
             <div className="text-sm text-amber-300">{revision_due_count} due now</div>
           </div>
         )}
+        {preview.recommended_next_step && (
+          <div className="mt-2 pt-2.5 border-t border-white/[0.06]">
+            <div className="text-xs text-muted-foreground flex items-center gap-1.5"><Route className="h-3 w-3 text-primary" /> Recommended next step</div>
+            <div className="text-sm mt-0.5 font-medium text-primary/95">{preview.recommended_next_step.label}</div>
+            <div className="text-[10px] text-muted-foreground/80 mt-0.5">
+              First incomplete prerequisite on your path
+            </div>
+          </div>
+        )}
       </div>
     </GlassCard>
   );
@@ -152,6 +161,27 @@ function MentorMarkdown({ children }) {
 
 function MessageBubble({ message }) {
   const isUser = message.role === 'user';
+  if (message.style === 'lesson' && message.structured_content) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+        data-testid={MENTOR.assistantMessage}
+        className="py-4"
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <span className="h-6 w-6 rounded-md bg-primary/15 border border-primary/30 flex items-center justify-center">
+            <Sparkles className="h-3 w-3 text-primary" />
+          </span>
+          <span className="text-[10px] font-mono uppercase tracking-wider text-primary/80">
+            Structured lesson · 9 cards
+          </span>
+        </div>
+        <MentorLessonCards lesson={message.structured_content} />
+      </motion.div>
+    );
+  }
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -193,11 +223,12 @@ function MessageBubble({ message }) {
 
 function Composer({ onSend, sending, disabled }) {
   const [text, setText] = useState('');
+  const [lessonMode, setLessonMode] = useState(false);
   const textareaRef = useRef(null);
 
   const submit = () => {
     if (sending || !text.trim()) return;
-    onSend(text);
+    onSend(text, lessonMode ? 'lesson' : 'chat');
     setText('');
     // reset auto-grow
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
@@ -212,35 +243,52 @@ function Composer({ onSend, sending, disabled }) {
 
   return (
     <div className="border-t border-white/[0.06] bg-[hsl(var(--surface))]/60 backdrop-blur-xl px-6 py-4">
-      <div className="max-w-4xl mx-auto flex items-end gap-3">
-        <Textarea
-          ref={textareaRef}
-          data-testid={MENTOR.input}
-          rows={1}
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            const el = e.target;
-            el.style.height = 'auto';
-            el.style.height = Math.min(el.scrollHeight, 200) + 'px';
-          }}
-          onKeyDown={onKeyDown}
-          disabled={disabled}
-          placeholder="Ask about a concept, request a mock question, or paste your solution for review…"
-          className="resize-none bg-white/[0.03] border-white/[0.08] focus:border-primary/40 min-h-[48px] max-h-[200px]"
-        />
-        <Button
-          data-testid={MENTOR.sendButton}
-          onClick={submit}
-          disabled={sending || !text.trim() || disabled}
-          className="h-12 px-5 bg-primary hover:bg-primary/90 text-primary-foreground gap-2"
-        >
-          {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          <span className="hidden sm:inline">{sending ? 'Thinking…' : 'Send'}</span>
-        </Button>
-      </div>
-      <div className="max-w-4xl mx-auto mt-1.5 text-[10px] text-muted-foreground/70 font-mono uppercase tracking-wider">
-        Enter to send · Shift+Enter for newline
+      <div className="max-w-4xl mx-auto">
+        <div className="flex items-center justify-between mb-2">
+          <label className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-muted-foreground cursor-pointer">
+            <input
+              type="checkbox"
+              checked={lessonMode}
+              onChange={(e) => setLessonMode(e.target.checked)}
+              className="h-3 w-3 rounded accent-primary"
+              data-testid="mentor-lesson-mode-toggle"
+            />
+            <BookOpen className="h-3 w-3" />
+            Structured lesson (9-card format)
+          </label>
+        </div>
+        <div className="flex items-end gap-3">
+          <Textarea
+            ref={textareaRef}
+            data-testid={MENTOR.input}
+            rows={1}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              const el = e.target;
+              el.style.height = 'auto';
+              el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+            }}
+            onKeyDown={onKeyDown}
+            disabled={disabled}
+            placeholder={lessonMode
+              ? 'Ask for a full lesson (e.g. "Teach me HashMap")…'
+              : 'Ask about a concept, request a mock question, or paste your solution for review…'}
+            className="resize-none bg-white/[0.03] border-white/[0.08] focus:border-primary/40 min-h-[48px] max-h-[200px]"
+          />
+          <Button
+            data-testid={MENTOR.sendButton}
+            onClick={submit}
+            disabled={sending || !text.trim() || disabled}
+            className="h-12 px-5 bg-primary hover:bg-primary/90 text-primary-foreground gap-2"
+          >
+            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            <span className="hidden sm:inline">{sending ? 'Thinking…' : 'Send'}</span>
+          </Button>
+        </div>
+        <div className="mt-1.5 text-[10px] text-muted-foreground/70 font-mono uppercase tracking-wider">
+          Enter to send · Shift+Enter for newline · Lesson mode returns a 9-card structured response
+        </div>
       </div>
     </div>
   );
@@ -252,7 +300,7 @@ const STARTER_PROMPTS = [
   { title: 'Roadmap next step', body: 'What should I study next based on my current progress?' },
   { title: 'Weak-area drill', body: 'Give me a targeted mini-drill on my weakest topic.' },
   { title: 'Mock interview', body: 'Ask me a system design question at Google L4 bar. Then grade my answer.' },
-  { title: 'Explain a topic', body: 'Explain Kadane\'s algorithm and 2 interview follow-ups I should be ready for.' },
+  { title: 'Structured lesson', body: 'Teach me HashMap deeply as a structured lesson.' },
 ];
 
 function EmptyState({ onPick, contextPreview }) {
@@ -369,7 +417,7 @@ export default function AIMentor() {
 
         {m.messages.length === 0 && !m.sending ? (
           <EmptyState
-            onPick={(text) => m.sendMessage(text)}
+            onPick={(text) => m.sendMessage(text, { responseStyle: /structured|teach me|lesson/i.test(text) ? 'lesson' : 'chat' })}
             contextPreview={m.contextPreview}
           />
         ) : (
@@ -398,7 +446,7 @@ export default function AIMentor() {
           </div>
         )}
 
-        <Composer onSend={(t) => m.sendMessage(t)} sending={m.sending} />
+        <Composer onSend={(t, style) => m.sendMessage(t, { responseStyle: style })} sending={m.sending} />
       </main>
     </div>
   );

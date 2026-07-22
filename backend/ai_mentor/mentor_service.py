@@ -5,7 +5,9 @@ Flow for a single `answer()` call:
   2. Persist the user's message.
   3. Build the learner context (context_builder).
   4. Load AI config (provider / model / api_key) from user settings.
-  5. Assemble system + user turn (mentor_prompt).
+  5. Assemble system + user turn (mentor_prompt). Two modes:
+       - "chat"   → free-form markdown reply
+       - "lesson" → strict 9-card JSON, parsed and persisted as structured_content
   6. Call the LLM via `ai_service.complete_json` (reused — no duplication).
   7. Persist the assistant's reply, bump the conversation counters.
   8. Return (conversation, user_msg, assistant_msg, context_preview).
@@ -15,7 +17,9 @@ Streaming is not enabled yet but the architecture supports it — replace the
 Everything else stays identical.
 """
 from __future__ import annotations
+import json
 import logging
+import re
 from typing import Optional, Tuple
 
 from ai_service import complete_json, AIProviderError
@@ -25,7 +29,8 @@ from .context_builder import (
     build_context, serialize_context, current_topic_kb_block, public_preview,
 )
 from .mentor_prompt import (
-    build_system_message, build_user_message, summarise_title,
+    build_system_message, build_lesson_system_message,
+    build_user_message, summarise_title,
 )
 from .models import MentorConversation, MentorMessage
 
@@ -86,15 +91,23 @@ async def _call_llm(*, system_message: str, prompt: str, ai_config: dict,
 
 async def answer(db, *, user_id: str, user_message: str,
                  conversation_id: Optional[str],
-                 topic_node_id: Optional[str] = None) -> Tuple[
+                 topic_node_id: Optional[str] = None,
+                 response_style: str = "chat") -> Tuple[
                      MentorConversation, MentorMessage, MentorMessage, dict,
                  ]:
     """The single public entry-point for a mentor turn.
+
+    `response_style="chat"`   → free-form markdown reply (default).
+    `response_style="lesson"` → strict 9-card JSON persisted as
+        `assistant_msg.structured_content`. `content` still holds the raw JSON
+        text so the transcript survives deserialisation issues.
 
     Any future feature (mock interviews, revision planner, etc.) can call this
     directly — either persistently (with a conversation_id) or ephemerally by
     creating a throwaway conversation.
     """
+    style = response_style if response_style in ("chat", "lesson") else "chat"
+
     # 1. Conversation.
     convo = await ensure_conversation(
         db, user_id=user_id, conversation_id=conversation_id,
@@ -105,7 +118,7 @@ async def answer(db, *, user_id: str, user_message: str,
     # 2. Persist user turn immediately.
     user_msg = await store.add_message(
         db, conversation_id=convo.id, user_id=user_id, role="user",
-        content=user_message, topic_node_id=effective_topic,
+        content=user_message, topic_node_id=effective_topic, style=style,
     )
     await store.touch_conversation(
         db, conversation_id=convo.id, user_id=user_id,
@@ -114,41 +127,39 @@ async def answer(db, *, user_id: str, user_message: str,
 
     # 3. Context.
     context = await build_context(db, user_id=user_id, node_id=effective_topic)
-    system_message = build_system_message(serialize_context(context))
+    context_block = serialize_context(context)
+    if style == "lesson":
+        system_message = build_lesson_system_message(context_block)
+    else:
+        system_message = build_system_message(context_block)
     kb_block = current_topic_kb_block(context)
 
     # 4. Config.
     cfg = await _load_ai_config(db, user_id)
     if not cfg["api_key"]:
-        # Surface the missing-key case as a graceful assistant message so the
-        # UI can still show the reply flow. We DO NOT invent a provider fallback.
         raise AIProviderError(
             "Please configure your Gemini API Key in Settings so the mentor can respond.",
             kind="missing_key", status_code=400,
         )
 
-    # 5. Prior transcript (short-term memory).
-    history = await store.recent_messages(
-        db, conversation_id=convo.id, user_id=user_id, limit=_HISTORY_TAIL,
-    )
-    # The user message we just persisted is in there; strip it so the
-    # LLM prompt structure (`### User's new message`) doesn't duplicate it.
-    history = [m for m in history if m.id != user_msg.id]
+    # 5. Prior transcript (short-term memory) — skip in lesson mode because a
+    # lesson is a single-shot structured emit.
+    history = []
+    if style == "chat":
+        history = await store.recent_messages(
+            db, conversation_id=convo.id, user_id=user_id, limit=_HISTORY_TAIL,
+        )
+        history = [m for m in history if m.id != user_msg.id]
 
     prompt = build_user_message(
         new_message=user_message, history=history, node_kb_block=kb_block,
     )
 
     # 6. LLM call.
-    try:
-        raw = await _call_llm(
-            system_message=system_message, prompt=prompt, ai_config=cfg,
-            session_id=f"mentor::{convo.id}",
-        )
-    except AIProviderError:
-        # We keep the user's message persisted so retry doesn't lose their input.
-        raise
-
+    raw = await _call_llm(
+        system_message=system_message, prompt=prompt, ai_config=cfg,
+        session_id=f"mentor::{convo.id}",
+    )
     reply = (raw or "").strip()
     if not reply:
         raise AIProviderError(
@@ -156,17 +167,24 @@ async def answer(db, *, user_id: str, user_message: str,
             kind="empty_response", status_code=502,
         )
 
+    structured = None
+    if style == "lesson":
+        structured = _parse_lesson_json(reply)
+        # If parsing failed, fall back to chat mode gracefully — the raw text
+        # still gets persisted so the user sees SOMETHING useful.
+        if structured is None:
+            style = "chat"
+
     # 7. Persist assistant turn.
     assistant_msg = await store.add_message(
         db, conversation_id=convo.id, user_id=user_id, role="assistant",
-        content=reply, topic_node_id=effective_topic,
+        content=reply, topic_node_id=effective_topic, style=style,
+        structured_content=structured,
     )
     await store.touch_conversation(
         db, conversation_id=convo.id, user_id=user_id,
         preview=f"Mentor: {reply}", delta_count=1,
     )
-    # If this is the very first user turn (conversation was freshly created),
-    # rename the conversation from the seed to something more descriptive.
     fresh = await store.get_conversation(db, conversation_id=convo.id, user_id=user_id)
     if fresh and fresh.message_count <= 2:
         await store.rename_conversation(
@@ -175,5 +193,33 @@ async def answer(db, *, user_id: str, user_message: str,
         )
         fresh = await store.get_conversation(db, conversation_id=convo.id, user_id=user_id)
 
-    # 8. Return everything a caller / UI needs.
     return fresh or convo, user_msg, assistant_msg, public_preview(context)
+
+
+_JSON_FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
+
+
+def _parse_lesson_json(raw: str) -> Optional[dict]:
+    """Best-effort JSON parse — Gemini sometimes wraps output in ``` fences."""
+    # 1. Direct.
+    try:
+        return json.loads(raw)
+    except Exception:
+        pass
+    # 2. Extract from fenced block.
+    m = _JSON_FENCE.search(raw)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except Exception:
+            pass
+    # 3. First-brace to last-brace slice.
+    if "{" in raw and "}" in raw:
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        try:
+            return json.loads(raw[start:end])
+        except Exception:
+            pass
+    log.warning("mentor_service: failed to parse lesson JSON; falling back to chat mode")
+    return None

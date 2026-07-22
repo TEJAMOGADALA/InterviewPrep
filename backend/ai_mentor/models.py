@@ -10,14 +10,15 @@ from pydantic import BaseModel, Field
 
 
 Role = Literal["user", "assistant", "system"]
+ResponseStyle = Literal["chat", "lesson"]
 
 
 class MentorMessage(BaseModel):
     """One message in a mentor conversation.
 
-    Persisted 1:1 to Mongo `mentor_messages`. The system role is used only
-    for the initial context injection so we can rebuild the transcript on
-    demand — user-visible transcripts filter it out.
+    Persisted 1:1 to Mongo `mentor_messages`. `structured_content` is populated
+    only when the message was produced in `lesson` mode — it holds the parsed
+    9-card JSON so the UI can render cards on reload without re-calling Gemini.
     """
     id: str
     conversation_id: str
@@ -25,6 +26,8 @@ class MentorMessage(BaseModel):
     role: Role
     content: str
     topic_node_id: Optional[str] = None
+    style: Optional[ResponseStyle] = "chat"
+    structured_content: Optional[dict] = None
     created_at: str
 
 
@@ -46,6 +49,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=8000)
     conversation_id: Optional[str] = None
     topic_node_id: Optional[str] = None  # If the UI already knows which node the user is on.
+    response_style: Optional[ResponseStyle] = "chat"  # chat | lesson (9-card structured)
 
 
 class NewChatRequest(BaseModel):

@@ -38,6 +38,7 @@ async def chat(payload: ChatRequest, user=Depends(get_current_user)):
             user_message=payload.message,
             conversation_id=payload.conversation_id,
             topic_node_id=payload.topic_node_id,
+            response_style=payload.response_style or "chat",
         )
     except AIProviderError as e:
         raise _ai_error_to_http(e)

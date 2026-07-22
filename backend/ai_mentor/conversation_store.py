@@ -98,7 +98,9 @@ async def rename_conversation(db, *, conversation_id: str, user_id: str, title: 
 
 async def add_message(db, *, conversation_id: str, user_id: str,
                       role: str, content: str,
-                      topic_node_id: Optional[str] = None) -> MentorMessage:
+                      topic_node_id: Optional[str] = None,
+                      style: Optional[str] = "chat",
+                      structured_content: Optional[dict] = None) -> MentorMessage:
     doc = {
         "id": _new_id(),
         "conversation_id": conversation_id,
@@ -106,6 +108,8 @@ async def add_message(db, *, conversation_id: str, user_id: str,
         "role": role,
         "content": content,
         "topic_node_id": topic_node_id,
+        "style": style,
+        "structured_content": structured_content,
         "created_at": _now_iso(),
     }
     await db[MSG_COLL].insert_one(doc)

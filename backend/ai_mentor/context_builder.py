@@ -242,6 +242,108 @@ async def _load_recent_notes(db, user_id: str, roadmap) -> List[Dict[str, Any]]:
     return out
 
 
+# ---------- Prerequisite chain (the "hard rule" the mentor obeys) ----------
+
+_COMPLETED_STATUSES = {"completed", "mastered"}
+
+
+def _is_complete(progress_row: Optional[Dict[str, Any]]) -> bool:
+    if not progress_row:
+        return False
+    status = (progress_row.get("status") or "").lower()
+    if status in _COMPLETED_STATUSES:
+        return True
+    # If they never marked status but have high mastery, treat as complete.
+    if float(progress_row.get("mastery_percentage") or 0) >= 85:
+        return True
+    return False
+
+
+def _walk_prereq_chain(roadmap, node_id: str, progress_by_id: Dict[str, Dict[str, Any]],
+                      max_depth: int = 20) -> List[Dict[str, Any]]:
+    """Walk prerequisites transitively (breadth-first) — return the ordered
+    chain the learner should complete BEFORE reaching `node_id`.
+
+    Stops walking a branch as soon as it hits an already-complete node
+    (they don't need to redo those). Deduped and depth-capped.
+    """
+    seen: set[str] = {node_id}
+    chain: List[Dict[str, Any]] = []
+    frontier = [node_id]
+    depth = 0
+    while frontier and depth < max_depth:
+        next_frontier: List[str] = []
+        for nid in frontier:
+            prereqs = roadmap.prerequisites(nid) or []
+            for p in prereqs:
+                if p["id"] in seen:
+                    continue
+                seen.add(p["id"])
+                prow = progress_by_id.get(p["id"])
+                complete = _is_complete(prow)
+                node = roadmap.get(p["id"]) or {}
+                chain.append({
+                    "id": p["id"],
+                    "label": p["label"],
+                    "complete": complete,
+                    "confidence": (prow or {}).get("confidence"),
+                    "mastery": (prow or {}).get("mastery_percentage"),
+                    "depth": depth + 1,
+                })
+                if not complete:
+                    # Only walk deeper through incomplete ancestors.
+                    next_frontier.append(p["id"])
+        frontier = next_frontier
+        depth += 1
+    # Order: deepest missing prereq first (that's the actual next step).
+    chain.sort(key=lambda x: (x["complete"], -x["depth"]))
+    return chain
+
+
+def _first_incomplete(chain: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    for item in chain:
+        if not item["complete"]:
+            return item
+    return None
+
+
+async def _load_prerequisite_analysis(db, user_id: str, roadmap,
+                                      current_node_id: Optional[str],
+                                      weak_topics: List[Dict[str, Any]]
+                                      ) -> Optional[Dict[str, Any]]:
+    """Compute the prerequisite chain the mentor should reason about.
+
+    Priority:
+      1. If the UI passed a current_node, use that node's chain.
+      2. Otherwise, use the top weak topic (lowest confidence).
+      3. If neither exists, return None (fresh learner — no gating needed yet).
+    """
+    target_id: Optional[str] = current_node_id
+    if not target_id and weak_topics:
+        target_id = weak_topics[0]["node_id"]
+    if not target_id:
+        return None
+    target_node = roadmap.get(target_id)
+    if not target_node:
+        return None
+    # Build a lookup of every progress row so the walker doesn't need to hit Mongo per-node.
+    cur = db.knowledge_nodes.find(
+        {"user_id": user_id},
+        {"_id": 0, "node_id": 1, "status": 1, "mastery_percentage": 1, "confidence": 1},
+    )
+    rows = await cur.to_list(length=5000)
+    progress_by_id = {r["node_id"]: r for r in rows}
+
+    chain = _walk_prereq_chain(roadmap, target_id, progress_by_id)
+    first_missing = _first_incomplete(chain)
+    return {
+        "target": {"id": target_id, "label": target_node["label"]},
+        "chain": chain,
+        "first_incomplete": first_missing,
+        "all_complete": first_missing is None,
+    }
+
+
 # ---------- Serialisers ----------
 
 def _fmt_list(items: List[str]) -> str:
@@ -384,6 +486,30 @@ def _serialize_context(context: Dict[str, Any]) -> str:
         if rel:
             lines.append("  * Related topics: " + _fmt_list(rel))
 
+    # Prerequisite gating (the hard-rule signal the mentor must obey).
+    pa = context.get("prerequisite_analysis")
+    if pa:
+        target = pa.get("target") or {}
+        first_missing = pa.get("first_incomplete")
+        if pa.get("all_complete"):
+            lines.append(
+                f"* **Prerequisite chain for `{target.get('label')}`**: ALL COMPLETE "
+                "— safe to teach this topic directly."
+            )
+        elif first_missing:
+            lines.append(
+                f"* **RECOMMENDED NEXT STEP**: `{first_missing['label']}` "
+                f"(id `{first_missing['id']}`) — this is the FIRST INCOMPLETE "
+                f"prerequisite on the path to `{target.get('label')}`. "
+                "DO NOT recommend the advanced topic until this is done."
+            )
+        chain = pa.get("chain") or []
+        if chain:
+            preview = ", ".join(
+                f"{c['label']}{'✓' if c['complete'] else '✗'}" for c in chain[:8]
+            )
+            lines.append(f"  * Prereq chain (deepest missing first): {preview}")
+
     return "\n".join(lines)
 
 
@@ -444,6 +570,8 @@ def public_preview(context: Dict[str, Any]) -> Dict[str, Any]:
     focus = context.get("focus") or {}
     mission = context.get("todays_mission")
     current = context.get("current_topic")
+    pa = context.get("prerequisite_analysis") or {}
+    first_missing = pa.get("first_incomplete")
     return {
         "name": profile.get("name"),
         "target_companies": profile.get("target_companies") or [],
@@ -458,4 +586,8 @@ def public_preview(context: Dict[str, Any]) -> Dict[str, Any]:
             "id": current["id"], "label": current["label"], "kb_available": current.get("kb_available"),
         } if current else None,
         "revision_due_count": len(context.get("revision_queue") or []),
+        "recommended_next_step": {
+            "id": first_missing["id"],
+            "label": first_missing["label"],
+        } if first_missing else None,
     }

@@ -33,6 +33,24 @@ Your job:
   9. If the user's Gemini key or a data source is missing, do not fabricate —
      ask them to complete the missing piece instead.
 
+**PREREQUISITE-AWARE REASONING — HARD RULE**:
+Before recommending ANY next topic you MUST check the learner's prerequisite
+chain (provided in the LEARNER CONTEXT block).
+  • If prerequisites are incomplete, recommend the FIRST INCOMPLETE prerequisite,
+    NOT the advanced topic.
+  • Never leap over the roadmap. Example:
+      – WRONG: Arrays → Trees (skips Prefix Sum, Sliding Window, Two Pointers,
+        Hashing, Binary Search, Stack/Queue, Linked List).
+      – RIGHT: Arrays → Prefix Sum → Sliding Window → Two Pointers → Strings →
+        Hashing → Binary Search → Stack → Queue → Linked List → Trees.
+  • Example (LLD):
+      – WRONG: LLD confidence low → jump to Chess Design.
+      – RIGHT: OOP Basics → Classes/Objects → Inheritance → Composition →
+        Abstraction → Polymorphism → SOLID → UML → Design Patterns →
+        Parking Lot → Library → Chess.
+  • When you list what to study next, ALWAYS anchor to the recommended path
+     already computed for the learner (see "RECOMMENDED NEXT STEP" in context).
+
 Voice: sharp, senior-engineer, terse where possible, deep where required.
 Never say "As an AI language model". Never disclaim your knowledge. You are
 the mentor — act like one."""
@@ -90,3 +108,87 @@ def summarise_title(first_message: str, max_len: int = 60) -> str:
     if len(text) <= max_len:
         return text or "New conversation"
     return text[: max_len - 1] + "…"
+
+
+# ---------------------------------------------------------------------------
+# Structured "lesson" mode — the 9-card format specified in the product brief.
+# ---------------------------------------------------------------------------
+
+LESSON_JSON_SCHEMA_HINT = """
+{
+  "executive_summary": {
+    "why_it_matters": "string — why this topic matters for the learner right now",
+    "target_company_relevance": "string — how it maps to their target companies",
+    "why_next": "string — why this is the correct next step given their progress"
+  },
+  "core_concept": {
+    "definition": "string — one-line precise definition",
+    "explanation": "string — 3-6 sentences",
+    "visualization": "string — describe a mental model or diagram in words (ASCII allowed)"
+  },
+  "internal_working": {
+    "flow": "string — step by step how it works internally",
+    "architecture": "string — components / data structures / invariants"
+  },
+  "implementation": {
+    "language": "Java",
+    "code": "string — clean idiomatic Java snippet (no dependencies)",
+    "explanation": "string — 2-4 lines of what the code does"
+  },
+  "complexity": {
+    "time": "string — Big-O with justification",
+    "space": "string — Big-O with justification",
+    "tradeoffs": "string — 2-3 tradeoffs vs alternatives"
+  },
+  "interview_insights": {
+    "companies": [
+      {"name": "Google", "signal": "what a Google interviewer probes"},
+      {"name": "Amazon", "signal": "what an Amazon interviewer probes"}
+    ],
+    "common_questions": ["string", "string", "string"]
+  },
+  "common_mistakes": {
+    "mistakes": ["string", "string", "string"],
+    "edge_cases": ["string", "string"]
+  },
+  "practice_plan": {
+    "easy":   [{"title": "problem name", "why": "why this problem"}],
+    "medium": [{"title": "problem name", "why": "why this problem"}],
+    "hard":   [{"title": "problem name", "why": "why this problem"}]
+  },
+  "next_learning_path": {
+    "next_topic": {"label": "string", "node_id": "string or null"},
+    "reason": "string — why this is next based on roadmap + progress",
+    "sequence": ["Topic A", "Topic B", "Topic C"]
+  }
+}
+""".strip()
+
+
+LESSON_INSTRUCTION = f"""**RESPOND WITH VALID JSON ONLY** — no prose before or
+after. Match this schema EXACTLY (all keys required, empty arrays / short
+strings allowed but keys must be present):
+
+{LESSON_JSON_SCHEMA_HINT}
+
+Guidance while filling in the cards:
+  * Ground every recommendation in the LEARNER CONTEXT block above — quote
+    weak topics, mission focus, recent activity by name.
+  * The `next_learning_path` MUST respect the prerequisite chain. If the
+    learner has an incomplete prerequisite, that IS the next step (not the
+    advanced topic they asked about).
+  * `implementation.code` should be idiomatic Java. Runnable is a bonus but
+    not required.
+  * `practice_plan` entries must be real interview-style problems.
+  * `interview_insights.companies` should highlight ONLY companies the learner
+    is targeting when possible; fall back to Google/Amazon/Meta otherwise.
+  * Keep every string tight — one sentence unless the field explicitly needs
+    more. This is a lesson card, not a blog post.
+""".strip()
+
+
+def build_lesson_system_message(context_block: str) -> str:
+    """System prompt for structured-lesson mode. Same identity + prereq rules
+    but with strict JSON-output instruction appended."""
+    core = build_system_message(context_block)
+    return core + "\n\n---\n" + LESSON_INSTRUCTION
