@@ -1,6 +1,13 @@
 import axios from 'axios';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+// Support both variable names and fallback gracefully
+const rawUrl =
+  process.env.REACT_APP_BACKEND_URL ||
+  process.env.REACT_APP_API_URL ||
+  'http://127.0.0.1:8000';
+
+// Ensure no trailing slash so path concatenation is clean
+const BACKEND_URL = rawUrl.replace(/\/$/, '');
 
 const api = axios.create({
   baseURL: `${BACKEND_URL}/api`,
@@ -10,6 +17,7 @@ const api = axios.create({
 
 // Auto-refresh on 401 + self-heal onboarding-required redirects
 let refreshing = null;
+
 api.interceptors.response.use(
   (r) => r,
   async (error) => {
@@ -47,7 +55,7 @@ api.interceptors.response.use(
       }
     }
     return Promise.reject(error);
-  },
+  }
 );
 
 export default api;

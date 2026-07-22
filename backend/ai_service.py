@@ -2,7 +2,7 @@
 
 One method surface — `complete_json(system, prompt, provider, model, api_key,
 temperature)` — so future providers (OpenAI, Claude) plug in without touching
-the generation service. Uses `emergentintegrations.LlmChat` under the hood.
+the generation service. Uses `google.genai` SDK under the hood.
 
 Includes an automatic Emergent LLM key fallback so a user's own-key rate-limit
 or deprecated model never turns the app into a paperweight.
@@ -10,11 +10,12 @@ or deprecated model never turns the app into a paperweight.
 from __future__ import annotations
 import logging
 import os
+import json
 import re
+from google import genai
 from typing import Optional
 
 from dotenv import load_dotenv
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 load_dotenv()
 log = logging.getLogger(__name__)
@@ -37,10 +38,6 @@ class AIProviderError(Exception):
 
 
 # ---- Precise pattern matching ---------------------------------------------
-# Do NOT use naked substring checks: "rate" would falsely match "generate",
-# "aggregate", "accurate"; "500" would match model token counts; etc.
-# Use word boundaries and explicit phrases only.
-
 _INVALID_KEY_PATTERNS = (
     re.compile(r"api[\s_-]*key[^a-z]*(not[\s_]*valid|invalid|missing|rejected)", re.I),
     re.compile(r"api_key_invalid", re.I),
@@ -82,20 +79,10 @@ def _match_any(patterns, text: str) -> bool:
 
 
 def _classify(err: Exception) -> AIProviderError:
-    """Bucket raw SDK exceptions into user-actionable kinds.
-
-    Priority order (most specific first):
-      1. Invalid API key / auth failure
-      2. Model-not-found (very common — bad model_name in Settings)
-      3. Rate limit / quota
-      4. Timeout
-      5. Network / upstream 5xx
-      6. Fallback: `unknown` — surface the raw SDK message
-    """
+    """Bucket raw SDK exceptions into user-actionable kinds."""
     cls_name = err.__class__.__name__ or ""
     msg = str(err) or cls_name
 
-    # Class-name check gives us high-confidence signal before regex scanning.
     if cls_name in ("AuthenticationError", "PermissionDeniedError"):
         return AIProviderError(
             "Your Gemini API key was rejected. Please update it in Settings.",
@@ -123,7 +110,6 @@ def _classify(err: Exception) -> AIProviderError:
             kind="upstream", status_code=502,
         )
 
-    # Fall back to precise pattern scanning of the raw message.
     if _match_any(_INVALID_KEY_PATTERNS, msg):
         return AIProviderError(
             "Your Gemini API key was rejected. Please update it in Settings.",
@@ -151,7 +137,6 @@ def _classify(err: Exception) -> AIProviderError:
             kind="upstream", status_code=502,
         )
 
-    # No pattern matched — surface the actual message so users aren't lied to.
     trimmed = msg.strip().split("\n", 1)[0][:180]
     return AIProviderError(
         f"AI generation failed: {trimmed or cls_name or 'unknown error'}",
@@ -169,18 +154,8 @@ async def complete_json(
     temperature: float = 0.7,
     session_id: str = "prepos-knowledge-gen",
 ) -> str:
-    """Fire a single completion and return the raw text response.
-
-    On rate-limit / quota / model_not_found, transparently retries via the
-    Emergent LLM key + fallback model so free-tier user keys don't block the
-    whole app. Fallback is silent — logged, not surfaced to the caller.
-
-    JSON-shape enforcement happens in `prompt_builder.parse_content()` — this
-    layer stays provider-agnostic and only worries about I/O + error mapping.
-    """
+    """Fire a single completion and return the raw text response."""
     if not api_key:
-        # If no user key AND we have the Emergent fallback, use it as the
-        # primary. Otherwise 400 immediately so Settings can prompt the user.
         if _EMERGENT_KEY:
             return await _call_llm(
                 api_key=_EMERGENT_KEY,
@@ -201,7 +176,6 @@ async def complete_json(
             system_message=system_message, prompt=prompt, session_id=session_id,
         )
     except AIProviderError as pe:
-        # Auto-fallback to the Emergent LLM key on transient / quota / deprecated-model failures.
         if pe.kind in _FALLBACK_KINDS and _EMERGENT_KEY and api_key != _EMERGENT_KEY:
             log.warning(
                 "Falling back to Emergent LLM key · kind=%s · original_model=%s → %s",
@@ -226,13 +200,16 @@ async def _call_llm(
     api_key: str, model_name: str, provider: str,
     system_message: str, prompt: str, session_id: str,
 ) -> str:
-    """Inner LLM invocation. Raises AIProviderError on failure."""
+    """Inner LLM invocation using official google-genai SDK. Raises AIProviderError on failure."""
     try:
-        chat = (
-            LlmChat(api_key=api_key, session_id=session_id, system_message=system_message)
-            .with_model(provider, model_name)
+        client = genai.Client(api_key=api_key)
+        
+        interaction = client.interactions.create(
+            model=model_name,
+            input=prompt,
+            system_instruction=system_message if system_message else None,
         )
-        response = await chat.send_message(UserMessage(text=prompt))
+        response = interaction.output_text
     except AIProviderError:
         raise
     except Exception as e:  # noqa: BLE001
@@ -241,12 +218,14 @@ async def _call_llm(
             provider, model_name, e.__class__.__name__, str(e)[:600],
         )
         raise _classify(e)
+        
     if not response:
         log.warning("LLM returned empty response · provider=%s · model=%s", provider, model_name)
         raise AIProviderError(
             "AI returned an empty response. Please retry.",
             kind="empty_response", status_code=502,
         )
+        
     if isinstance(response, str):
         log.info("LLM request ok · provider=%s · model=%s · chars=%d", provider, model_name, len(response))
         return response
