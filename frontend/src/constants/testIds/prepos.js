@@ -71,3 +71,19 @@ export const PROFILE = {
   root: 'profile-root',
   editButton: 'profile-edit-button',
 };
+
+export const MENTOR = {
+  root: 'mentor-root',
+  newChatButton: 'mentor-new-chat-button',
+  conversationItem: 'mentor-conversation-item',
+  deleteButton: 'mentor-delete-conversation-button',
+  input: 'mentor-message-input',
+  sendButton: 'mentor-send-button',
+  messageList: 'mentor-message-list',
+  userMessage: 'mentor-message-user',
+  assistantMessage: 'mentor-message-assistant',
+  contextPreview: 'mentor-context-preview',
+  emptyState: 'mentor-empty-state',
+  historyList: 'mentor-history-list',
+  errorBanner: 'mentor-error-banner',
+};

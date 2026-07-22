@@ -15,6 +15,7 @@ from routes_auth import router as auth_router
 from routes_user import router as user_router
 from routes_missions import router as missions_router
 from routes_roadmap import router as roadmap_router
+from ai_mentor.mentor_routes import router as mentor_router
 
 # ------------------------- DB -------------------------
 mongo_url = os.environ["MONGO_URL"]
@@ -59,6 +60,7 @@ app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(missions_router)
 app.include_router(roadmap_router)
+app.include_router(mentor_router)
 
 # ------------------------- Startup -------------------------
 logging.basicConfig(
@@ -97,6 +99,11 @@ async def on_startup():
         [("user_id", 1), ("roadmap_version", 1), ("node_id", 1)],
         unique=True,
     )
+    # AI Mentor
+    await db.mentor_conversations.create_index([("user_id", 1), ("updated_at", -1)])
+    await db.mentor_conversations.create_index("id", unique=True)
+    await db.mentor_messages.create_index([("conversation_id", 1), ("created_at", 1)])
+    await db.mentor_messages.create_index([("user_id", 1), ("created_at", -1)])
     logger.info("MongoDB indexes ensured.")
 
     # ---- Roadmap migration: backfill knowledge_nodes from legacy tables ----
