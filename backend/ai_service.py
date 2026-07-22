@@ -5,8 +5,8 @@ temperature)` — so future providers (OpenAI, Claude) plug in without touching
 the generation service. Uses `emergentintegrations.LlmChat` under the hood.
 """
 from __future__ import annotations
-import asyncio
 import logging
+import re
 from typing import Optional
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
@@ -23,20 +23,127 @@ class AIProviderError(Exception):
         self.status_code = status_code
 
 
+# ---- Precise pattern matching ---------------------------------------------
+# Do NOT use naked substring checks: "rate" would falsely match "generate",
+# "aggregate", "accurate"; "500" would match model token counts; etc.
+# Use word boundaries and explicit phrases only.
+
+_INVALID_KEY_PATTERNS = (
+    re.compile(r"api[\s_-]*key[^a-z]*(not[\s_]*valid|invalid|missing|rejected)", re.I),
+    re.compile(r"api_key_invalid", re.I),
+    re.compile(r"authenticationerror", re.I),
+    re.compile(r"\bunauthorized\b", re.I),
+    re.compile(r"\bpermission[\s_]*denied\b", re.I),
+    re.compile(r"\b(401|403)\b"),
+)
+_RATE_LIMIT_PATTERNS = (
+    re.compile(r"rate[\s_]*limit", re.I),
+    re.compile(r"\bratelimiterror\b", re.I),
+    re.compile(r"quota[\s_]*(exceeded|exhausted)", re.I),
+    re.compile(r"\bresource[_\s]*exhausted\b", re.I),
+    re.compile(r"\btoo[\s_]*many[\s_]*requests\b", re.I),
+    re.compile(r"\b429\b"),
+)
+_MODEL_MISSING_PATTERNS = (
+    re.compile(r"\bnotfounderror\b", re.I),
+    re.compile(r"\binvalid[\s_]*model[\s_]*name\b", re.I),
+    re.compile(r"model[^a-z]*(not[\s_]*found|does not exist|not available|not supported)", re.I),
+    re.compile(r"unknown model", re.I),
+    re.compile(r"\b404\b"),
+)
+_TIMEOUT_PATTERNS = (
+    re.compile(r"\btimeout\b", re.I),
+    re.compile(r"read[\s_]*timed[\s_]*out", re.I),
+)
+_NETWORK_PATTERNS = (
+    re.compile(r"\bconnection[\s_]*(refused|error|reset|aborted)\b", re.I),
+    re.compile(r"name[\s_]*resolution[\s_]*failed", re.I),
+    re.compile(r"temporarily[\s_]*unavailable", re.I),
+    re.compile(r"\bservice[\s_]*unavailable\b", re.I),
+    re.compile(r"\b(502|503|504)\b"),
+)
+
+
+def _match_any(patterns, text: str) -> bool:
+    return any(p.search(text) for p in patterns)
+
+
 def _classify(err: Exception) -> AIProviderError:
-    """Bucket raw SDK exceptions into user-actionable kinds."""
-    msg = str(err) or err.__class__.__name__
-    low = msg.lower()
-    if any(k in low for k in ("invalid api key", "api key not valid", "unauthorized", "401", "permission denied", "403")):
-        return AIProviderError("Your Gemini API key was rejected. Please update it in Settings.",
-                                kind="invalid_key", status_code=401)
-    if "quota" in low or "rate" in low or "429" in low:
-        return AIProviderError("Gemini rate/quota limit reached. Try again in a minute.",
-                                kind="rate_limit", status_code=429)
-    if any(k in low for k in ("timeout", "connect", "network", "dns", "temporarily unavailable", "503", "500")):
-        return AIProviderError("Gemini is temporarily unreachable. Retry in a moment.",
-                                kind="upstream", status_code=502)
-    return AIProviderError(f"Gemini generation failed: {msg}", kind="unknown", status_code=500)
+    """Bucket raw SDK exceptions into user-actionable kinds.
+
+    Priority order (most specific first):
+      1. Invalid API key / auth failure
+      2. Model-not-found (very common — bad model_name in Settings)
+      3. Rate limit / quota
+      4. Timeout
+      5. Network / upstream 5xx
+      6. Fallback: `unknown` — surface the raw SDK message
+    """
+    cls_name = err.__class__.__name__ or ""
+    msg = str(err) or cls_name
+
+    # Class-name check gives us high-confidence signal before regex scanning.
+    if cls_name in ("AuthenticationError", "PermissionDeniedError"):
+        return AIProviderError(
+            "Your Gemini API key was rejected. Please update it in Settings.",
+            kind="invalid_key", status_code=401,
+        )
+    if cls_name in ("NotFoundError",):
+        return AIProviderError(
+            "The selected Gemini model isn't available for this API key. "
+            "Try `gemini-2.5-flash` or `gemini-1.5-flash` in Settings.",
+            kind="model_not_found", status_code=404,
+        )
+    if cls_name in ("RateLimitError",):
+        return AIProviderError(
+            "Gemini rate/quota limit reached. Try again in a minute.",
+            kind="rate_limit", status_code=429,
+        )
+    if cls_name in ("Timeout", "APITimeoutError"):
+        return AIProviderError(
+            "Gemini timed out. Retry in a moment.",
+            kind="timeout", status_code=504,
+        )
+    if cls_name in ("APIConnectionError", "ServiceUnavailableError"):
+        return AIProviderError(
+            "Gemini is temporarily unreachable. Retry in a moment.",
+            kind="upstream", status_code=502,
+        )
+
+    # Fall back to precise pattern scanning of the raw message.
+    if _match_any(_INVALID_KEY_PATTERNS, msg):
+        return AIProviderError(
+            "Your Gemini API key was rejected. Please update it in Settings.",
+            kind="invalid_key", status_code=401,
+        )
+    if _match_any(_MODEL_MISSING_PATTERNS, msg):
+        return AIProviderError(
+            "The selected Gemini model isn't available for this API key. "
+            "Try `gemini-2.5-flash` or `gemini-1.5-flash` in Settings.",
+            kind="model_not_found", status_code=404,
+        )
+    if _match_any(_RATE_LIMIT_PATTERNS, msg):
+        return AIProviderError(
+            "Gemini rate/quota limit reached. Try again in a minute.",
+            kind="rate_limit", status_code=429,
+        )
+    if _match_any(_TIMEOUT_PATTERNS, msg):
+        return AIProviderError(
+            "Gemini timed out. Retry in a moment.",
+            kind="timeout", status_code=504,
+        )
+    if _match_any(_NETWORK_PATTERNS, msg):
+        return AIProviderError(
+            "Gemini is temporarily unreachable. Retry in a moment.",
+            kind="upstream", status_code=502,
+        )
+
+    # No pattern matched — surface the actual message so users aren't lied to.
+    trimmed = msg.strip().split("\n", 1)[0][:180]
+    return AIProviderError(
+        f"AI generation failed: {trimmed or cls_name or 'unknown error'}",
+        kind="unknown", status_code=502,
+    )
 
 
 async def complete_json(
@@ -59,6 +166,7 @@ async def complete_json(
             "Please configure your Gemini API Key in Settings.",
             kind="missing_key", status_code=400,
         )
+    log.info("LLM request start · provider=%s · model=%s · session=%s", provider, model_name, session_id)
     try:
         chat = (
             LlmChat(api_key=api_key, session_id=session_id, system_message=system_message)
@@ -69,10 +177,19 @@ async def complete_json(
     except AIProviderError:
         raise
     except Exception as e:  # noqa: BLE001
-        log.warning("LLM provider error (%s/%s): %s", provider, model_name, e)
+        log.warning(
+            "LLM provider error · provider=%s · model=%s · class=%s · msg=%s",
+            provider, model_name, e.__class__.__name__, str(e)[:400],
+        )
         raise _classify(e)
 
+    if not response:
+        log.warning("LLM returned empty response · provider=%s · model=%s", provider, model_name)
+        raise AIProviderError(
+            "AI returned an empty response. Please retry.",
+            kind="empty_response", status_code=502,
+        )
     if isinstance(response, str):
+        log.info("LLM request ok · provider=%s · model=%s · chars=%d", provider, model_name, len(response))
         return response
-    # emergentintegrations returns a str; but tolerate other shapes defensively.
     return str(response)

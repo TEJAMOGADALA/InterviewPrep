@@ -18,6 +18,7 @@ import { formatDistanceToNow, parseISO } from 'date-fns';
 import { StatusBadge } from '@/components/progress/StatusBadge';
 import { NodeActions } from '@/components/progress/NodeActions';
 import { AIContentTabs } from '@/components/knowledge/AIContentTabs';
+import { AIInterviewCards } from '@/components/knowledge/AIInterviewCards';
 
 const BUCKET_LABEL = {
   green:  { label: 'Fresh',   cls: 'text-emerald-300 border-emerald-400/30 bg-emerald-400/10' },
@@ -287,6 +288,8 @@ export default function DeepTopicPage() {
       </div>
 
       {/* Resources tabs */}
+      <AIInterviewCards nodeId={node.id} />
+
       <AIContentTabs nodeId={node.id} />
 
       {/* Linked problems */}

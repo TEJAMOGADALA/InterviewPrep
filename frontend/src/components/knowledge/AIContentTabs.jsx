@@ -1,15 +1,13 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  BookOpen, Sparkles, Flag, Zap, Bookmark, ChevronRight,
+  BookOpen, Sparkles, Bookmark, ChevronRight,
   Layers, Users, AlertTriangle, RefreshCw, Loader2, KeyRound, Wand2,
 } from 'lucide-react';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { GlassCard } from '@/components/common/GlassCard';
 import { cn } from '@/lib/utils';
-import { roadmapService } from '@/services/mission.service';
-import { formatApiError } from '@/utils/formatApiError';
+import { useAIContent } from '@/hooks/useAIContent';
 
 /**
  * AI-generated knowledge content viewer.
@@ -30,8 +28,6 @@ import { formatApiError } from '@/utils/formatApiError';
 const TABS = [
   { key: 'theory',        label: 'Theory',           icon: BookOpen,    ai: true },
   { key: 'examples',      label: 'Examples',         icon: Sparkles,    ai: true },
-  { key: 'tips',          label: 'Interview Tips',   icon: Flag,        ai: true },
-  { key: 'mistakes',      label: 'Common Mistakes',  icon: AlertTriangle, ai: true },
   { key: 'flashcards',    label: 'Flashcards',       icon: Bookmark,    ai: true },
   { key: 'related',       label: 'Related Topics',   icon: Layers,      ai: true },
   { key: 'prerequisites', label: 'Prerequisites',    icon: Users,       ai: true },
@@ -41,47 +37,10 @@ const TABS = [
 
 
 export function AIContentTabs({ nodeId }) {
-  const [content, setContent] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
-  const [genError, setGenError] = useState(null); // { kind, message }
+  const { content, loading, generating, genError, generate } = useAIContent(nodeId);
   const [tab, setTab] = useState('theory');
 
-  const fetchContent = useCallback(async () => {
-    setLoading(true);
-    try {
-      const c = await roadmapService.getContent(nodeId);
-      setContent(c);
-    } catch (e) {
-      // Read is safe — surface via toast but keep the UI intact.
-      toast.error(formatApiError(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [nodeId]);
-
-  useEffect(() => { fetchContent(); }, [fetchContent]);
-
-  const handleGenerate = async ({ regenerate = false } = {}) => {
-    if (generating) return;
-    setGenerating(true);
-    setGenError(null);
-    try {
-      const c = regenerate
-        ? await roadmapService.regenerateContent(nodeId)
-        : await roadmapService.generateContent(nodeId);
-      setContent(c);
-      toast.success(regenerate ? 'Content regenerated.' : 'Content ready.');
-    } catch (e) {
-      const detail = e?.response?.data?.detail;
-      const kind = detail?.error;
-      const message = detail?.message || formatApiError(e);
-      setGenError({ kind, message });
-      toast.error(message);
-    } finally {
-      setGenerating(false);
-    }
-  };
+  const handleGenerate = ({ regenerate = false } = {}) => generate({ regenerate });
 
   if (loading) {
     return (
@@ -240,8 +199,6 @@ function EmptyState({ onGenerate, generating, error }) {
 function TabBody({ kind, content }) {
   if (kind === 'theory')        return <TheorySection theory={content.theory} />;
   if (kind === 'examples')      return <ExamplesSection items={content.examples} />;
-  if (kind === 'tips')          return <TipsSection items={content.interview_tips} />;
-  if (kind === 'mistakes')      return <MistakesSection items={content.common_mistakes} />;
   if (kind === 'flashcards')    return <FlashcardsSection items={content.flashcards} />;
   if (kind === 'related')       return <NodeLinkSection kind="related" items={content.related_topics} emptyLabel="No related topics returned." />;
   if (kind === 'prerequisites') return <NodeLinkSection kind="prereq"  items={content.prerequisites} emptyLabel="No prerequisites returned." />;
@@ -289,36 +246,6 @@ function ExamplesSection({ items }) {
   );
 }
 
-function TipsSection({ items }) {
-  if (!items?.length) return <EmptyLine>No tips generated yet.</EmptyLine>;
-  return (
-    <ul className="space-y-2" data-testid="ai-section-tips">
-      {items.map((t, i) => (
-        <li key={i} className="flex items-start gap-2 text-sm">
-          <Flag className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
-          <span>{t}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function MistakesSection({ items }) {
-  if (!items?.length) return <EmptyLine>No mistakes generated yet.</EmptyLine>;
-  return (
-    <div className="space-y-3" data-testid="ai-section-mistakes">
-      {items.map((m, i) => (
-        <div key={i} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-          <div className="text-sm flex items-start gap-2">
-            <AlertTriangle className="h-3.5 w-3.5 text-rose-300 mt-0.5 shrink-0" />
-            <span>{m.mistake}</span>
-          </div>
-          {m.fix && <div className="text-xs text-muted-foreground mt-1.5 pl-5">→ {m.fix}</div>}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 function FlashcardsSection({ items }) {
   if (!items?.length) return <EmptyLine>No flashcards generated yet.</EmptyLine>;

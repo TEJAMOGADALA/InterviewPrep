@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 8 STABILIZATION — verified _classify bug fix + AIInterviewCards UI split. Wrote /app/backend/tests/test_iteration8_stabilization.py (10 tests, ALL PASS in 40.7s). Confirmed: bogus model_name -> 404 model_not_found (NOT 429), bad key -> 401 invalid_key (NOT 429), empty key -> 400 missing_key, happy-path LRU generate returns full 7-section payload, 2nd generate is cache-hit (identical generated_at + <3s), regenerate updates timestamp. Frontend Playwright smoke on /app/knowledge-base/nodes/lld.principles.solid confirms: ai-content rendered, tabs = exactly ['theory','examples','flashcards','related','prerequisites','articles','videos'] (7), 'ai-tab-tips' & 'ai-tab-mistakes' ABSENT (count 0), ai-interview-cards + ai-top-tips + ai-top-mistakes ALL PRESENT above tabs card, articles/videos still labelled 'stub'. Network trace shows EXACTLY 1 GET /content call per page mount (StrictMode dedupe via useAIContent inflight Map works). Non-cached node with missing key: ai-interview-cards NOT rendered (top_cards=0) as required.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration8_stabilization.py",
+    "/app/test_reports/pytest/iter8_stab_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ai_service._classify docstring says '500' example — still fine, all patterns now word-bounded.",
+    "AIContentTabs.jsx header comment still says 'Renders 7 populated tabs (theory, examples, tips, mistakes, ...)' — stale after tips/mistakes were removed. Cosmetic only.",
+    "useAIContent.js `inflight` Map keyed by nodeId only — if two different sessions load same node it will still share cache in memory. Acceptable since content is global anyway."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration8_stabilization.py"],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "100%"},
+  "test_credentials": "admin@prepos.io/Admin@123 available; fresh user registered inline per run. Emergent universal Gemini key sk-emergent-aEa152aE36c979b48F used for happy path.",
+  "seed_data_creation": "Cached global knowledge_content rows for lld.patterns.creational.singleton (via bad-model tests, no cache), dsa.linear.linked_list.lru (happy path), lld.principles.solid (frontend smoke — was already cached).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Onboarding schema is {target_companies[], current_position, daily_study_hours(1..8), self_assessment{dsa,java,lld,hld,operating_systems,dbms,computer_networks}, interview_target_date}. Old shape (current_role/years_experience) yields 200 on POST but frontend redirects to /onboarding until real shape is used — used real shape for playwright. Iteration 8 stabilization complete + green.",
+  "rca of the issue": "Prior bug: ai_service._classify used `if 'rate' in low` which matched 'generate' in litellm error strings (e.g. 'Failed to generate chat completion: ...'), so every 4xx from Gemini was mis-labelled 429 rate_limit. Fix (already implemented in code): _classify now (1) checks err.__class__.__name__ first (AuthenticationError/NotFoundError/RateLimitError/Timeout/APIConnectionError), then (2) falls back to word-bounded compiled regex patterns. Added model_not_found/timeout/empty_response kinds. Regression tests now lock in the correct HTTP+detail.error mapping for all 3 error paths (401/404/400) so this cannot silently regress."
+}
