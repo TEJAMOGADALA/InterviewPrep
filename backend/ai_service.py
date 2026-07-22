@@ -91,7 +91,7 @@ def _classify(err: Exception) -> AIProviderError:
     if cls_name in ("NotFoundError",):
         return AIProviderError(
             "The selected Gemini model isn't available for this API key. "
-            "Try `gemini-2.5-flash` or `gemini-1.5-flash` in Settings.",
+            "Try `gemini-2.5-flash` or `gemini-2.0-flash` in Settings.",
             kind="model_not_found", status_code=404,
         )
     if cls_name in ("RateLimitError",):
@@ -119,7 +119,7 @@ def _classify(err: Exception) -> AIProviderError:
     if _match_any(_MODEL_MISSING_PATTERNS, msg):
         return AIProviderError(
             "The selected Gemini model isn't available for this API key. "
-            "Try `gemini-2.5-flash` or `gemini-1.5-flash` in Settings.",
+            "Try `gemini-2.5-flash` or `gemini-2.0-flash` in Settings.",
             kind="model_not_found", status_code=404,
         )
     if _match_any(_RATE_LIMIT_PATTERNS, msg):
@@ -177,9 +177,11 @@ async def complete_json(
     except AIProviderError:
         raise
     except Exception as e:  # noqa: BLE001
-        log.warning(
+        # Keep a rich log so future failures don't need another debug round-trip,
+        # then translate to a friendly AIProviderError the route can map to HTTP.
+        log.exception(
             "LLM provider error · provider=%s · model=%s · class=%s · msg=%s",
-            provider, model_name, e.__class__.__name__, str(e)[:400],
+            provider, model_name, e.__class__.__name__, str(e)[:600],
         )
         raise _classify(e)
 

@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 9 — verified the HTTP 500 leak fix in ai_service.complete_json. Restored `raise _classify(e)` inside `except Exception` block confirmed via source-grep AND behavioural tests. Wrote /app/backend/tests/test_iteration9_500_regression.py (18 tests, ALL PASS in 23.35s). CRITICAL RESULTS: (1) POST /content/regenerate with retired model 'gemini-1.5-flash' + valid Emergent key returns HTTP 404 detail.error='model_not_found' — NOT 500, NOT 429; message correctly suggests `gemini-2.5-flash` / `gemini-2.0-flash` and no longer references the deprecated model. (2) Happy path with gemini-2.5-flash returns HTTP 200 with full payload: theory.beginner+deep, examples>=2 (4), interview_tips>=3, common_mistakes>=3, flashcards>=5 (8), related_topics>=1 (4), prerequisites>=1 (3). (3) Cache-hit second /generate returns identical generated_at in <3s. (4) Invalid key -> 401 invalid_key; missing key -> 400 missing_key (both via /regenerate to bypass cache). (5) Source-guard test parses ai_service.py — confirms ONLY `raise _classify(e)` inside the except-Exception body, no bare `raise` present. (6) Backend log line `LLM provider error · provider=gemini · model=... · class=... · msg=...` at ERROR level captured on every provider failure (verified in /var/log/supervisor/backend.err.log). (7) Full regression sweep of untouched endpoints all green (roadmap tree/summary/progress/node/content, status/bookmark/favorite/notes(PATCH)/confidence/attempt, missions/today, settings, onboarding, auth/me).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration9_500_regression.py",
+    "/app/test_reports/pytest/iter9_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ai_service.complete_json: the `log.exception(...)` on line 182 duplicates the traceback that FastAPI would also log; acceptable because it preserves diagnostics when the wrapped AIProviderError only carries the friendly message.",
+    "The source-guard regression test greps ai_service.py directly — if the file is refactored (e.g. split into ai_service/ package), the test path must be updated. Trade-off accepted for now since this is the exact regression it must prevent.",
+    "routes_roadmap notes endpoint uses PATCH (not POST) — worth noting in API docs so future integration tests don't repeat the 405 I hit."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration9_500_regression.py"],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "n/a (backend-only)"},
+  "test_credentials": "admin@prepos.io/Admin@123 available; fresh user registered per module run. Emergent universal Gemini key sk-emergent-aEa152aE36c979b48F used for happy path + retired-model reproduction.",
+  "seed_data_creation": "Cached knowledge_content for os.fs.basics (happy path — will overwrite any prior cache since /regenerate was used). Existing cached content for lld.principles.solid untouched.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 9 500-leak fix is fully regression-locked. Test file at /app/backend/tests/test_iteration9_500_regression.py, 18 tests, sequential (do not use -n auto without --dist loadscope — parallel workers each hit the shared cache differently). Retired-model test uses `/regenerate` endpoint specifically because `/generate` short-circuits to cached content and never invokes Gemini. Notes endpoint is PATCH not POST — routes_roadmap.py:446. Missions/today may return 409 (onboarding_required) for freshly-registered users if _require_onboarding self-heal triggers — accepted as non-500. Iter8 stabilization suite (10 tests) still relevant and independent of iter9.",
+  "rca of the issue": "User saw HTTP 500 red banner on Deep Topic page. Root cause: a debug patch had replaced `raise _classify(e)` with a bare `raise` inside complete_json()'s `except Exception` block, letting the raw emergentintegrations ChatError propagate to FastAPI which returned 500. Underlying provider condition was Gemini's 404 on the retired gemini-1.5-flash model (v1beta endpoint no longer serves it). Fix (already applied by E1): restored `raise _classify(e)` AND added `log.exception(...)` above it to preserve the full traceback in backend logs for future debugging. Secondary fix: updated the model_not_found suggestion text to point at gemini-2.5-flash / gemini-2.0-flash instead of the broken 1.5-flash. Verified end-to-end: retired model → 404 model_not_found with correct suggestion; source no longer contains bare `raise` in that except block."
+}
