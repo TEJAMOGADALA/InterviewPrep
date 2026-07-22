@@ -146,6 +146,11 @@ class DailyMission(BaseModel):
     tasks: List[MissionTask]
     revision_task_ids: List[str] = []  # ids of tasks that are revision items
     status: str = "in_progress"  # in_progress | completed | skipped
+    # Adaptive Mission Engine (Sprint · iter 13) — filled once per day by the
+    # AI planner. Cached on the mission doc so refreshes never re-invoke the LLM.
+    tomorrow_preview: Optional[dict] = None
+    week_goal: Optional[dict] = None
+    ai_narrative: Optional[str] = None  # 1-2 sentence "why this mission today" from the mentor
     created_at: str = Field(default_factory=_now_iso)
     completed_at: Optional[str] = None
     skipped_at: Optional[str] = None

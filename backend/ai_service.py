@@ -3,15 +3,28 @@
 One method surface — `complete_json(system, prompt, provider, model, api_key,
 temperature)` — so future providers (OpenAI, Claude) plug in without touching
 the generation service. Uses `emergentintegrations.LlmChat` under the hood.
+
+Includes an automatic Emergent LLM key fallback so a user's own-key rate-limit
+or deprecated model never turns the app into a paperweight.
 """
 from __future__ import annotations
 import logging
+import os
 import re
 from typing import Optional
 
+from dotenv import load_dotenv
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 
+load_dotenv()
 log = logging.getLogger(__name__)
+
+# Emergent LLM key powers the fallback whenever the caller's own key trips a
+# quota / rate-limit / deprecated-model wall. This is opt-in per deployment —
+# unset the env var to disable the fallback entirely.
+_EMERGENT_KEY = (os.environ.get("EMERGENT_LLM_KEY") or "").strip()
+_EMERGENT_MODEL = (os.environ.get("EMERGENT_LLM_MODEL") or "gemini-2.5-flash").strip()
+_FALLBACK_KINDS = {"rate_limit", "quota_exhausted", "model_not_found"}
 
 
 class AIProviderError(Exception):
@@ -158,33 +171,76 @@ async def complete_json(
 ) -> str:
     """Fire a single completion and return the raw text response.
 
+    On rate-limit / quota / model_not_found, transparently retries via the
+    Emergent LLM key + fallback model so free-tier user keys don't block the
+    whole app. Fallback is silent — logged, not surfaced to the caller.
+
     JSON-shape enforcement happens in `prompt_builder.parse_content()` — this
     layer stays provider-agnostic and only worries about I/O + error mapping.
     """
     if not api_key:
+        # If no user key AND we have the Emergent fallback, use it as the
+        # primary. Otherwise 400 immediately so Settings can prompt the user.
+        if _EMERGENT_KEY:
+            return await _call_llm(
+                api_key=_EMERGENT_KEY,
+                model_name=_EMERGENT_MODEL,
+                provider=provider or "gemini",
+                system_message=system_message,
+                prompt=prompt,
+                session_id=session_id,
+            )
         raise AIProviderError(
             "Please configure your Gemini API Key in Settings.",
             kind="missing_key", status_code=400,
         )
     log.info("LLM request start · provider=%s · model=%s · session=%s", provider, model_name, session_id)
     try:
+        return await _call_llm(
+            api_key=api_key, model_name=model_name, provider=provider,
+            system_message=system_message, prompt=prompt, session_id=session_id,
+        )
+    except AIProviderError as pe:
+        # Auto-fallback to the Emergent LLM key on transient / quota / deprecated-model failures.
+        if pe.kind in _FALLBACK_KINDS and _EMERGENT_KEY and api_key != _EMERGENT_KEY:
+            log.warning(
+                "Falling back to Emergent LLM key · kind=%s · original_model=%s → %s",
+                pe.kind, model_name, _EMERGENT_MODEL,
+            )
+            try:
+                out = await _call_llm(
+                    api_key=_EMERGENT_KEY, model_name=_EMERGENT_MODEL,
+                    provider=provider or "gemini",
+                    system_message=system_message, prompt=prompt,
+                    session_id=session_id + "::emergent-fallback",
+                )
+                log.info("Recovered via Emergent fallback · model=%s", _EMERGENT_MODEL)
+                return out
+            except Exception as fe:  # noqa: BLE001
+                log.warning("Emergent fallback also failed: %s", str(fe)[:200])
+        raise
+
+
+async def _call_llm(
+    *,
+    api_key: str, model_name: str, provider: str,
+    system_message: str, prompt: str, session_id: str,
+) -> str:
+    """Inner LLM invocation. Raises AIProviderError on failure."""
+    try:
         chat = (
             LlmChat(api_key=api_key, session_id=session_id, system_message=system_message)
             .with_model(provider, model_name)
         )
-        # send_message is non-streaming — fine for a JSON one-shot we cache.
         response = await chat.send_message(UserMessage(text=prompt))
     except AIProviderError:
         raise
     except Exception as e:  # noqa: BLE001
-        # Keep a rich log so future failures don't need another debug round-trip,
-        # then translate to a friendly AIProviderError the route can map to HTTP.
         log.exception(
             "LLM provider error · provider=%s · model=%s · class=%s · msg=%s",
             provider, model_name, e.__class__.__name__, str(e)[:600],
         )
         raise _classify(e)
-
     if not response:
         log.warning("LLM returned empty response · provider=%s · model=%s", provider, model_name)
         raise AIProviderError(

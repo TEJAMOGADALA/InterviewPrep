@@ -19,6 +19,7 @@ Everything else stays identical.
 from __future__ import annotations
 import json
 import logging
+import os
 import re
 from typing import Optional, Tuple
 
@@ -136,7 +137,7 @@ async def answer(db, *, user_id: str, user_message: str,
 
     # 4. Config.
     cfg = await _load_ai_config(db, user_id)
-    if not cfg["api_key"]:
+    if not cfg["api_key"] and not (os.environ.get("EMERGENT_LLM_KEY") or "").strip():
         raise AIProviderError(
             "Please configure your Gemini API Key in Settings so the mentor can respond.",
             kind="missing_key", status_code=400,

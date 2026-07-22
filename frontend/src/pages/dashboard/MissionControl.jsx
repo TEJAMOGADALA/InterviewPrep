@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import {
   Target, Flame, ShieldCheck, RefreshCcw, GraduationCap,
   Activity, Bell, Sparkles, Check, SkipForward, Loader2,
-  CheckCircle2, Circle, Clock, Zap, TrendingUp, ChevronDown, Building2,
+  CheckCircle2, Circle, Clock, Zap, TrendingUp, ChevronDown, Building2, Route,
 } from 'lucide-react';
 import { format, formatDistanceToNow, parseISO } from 'date-fns';
 import { GlassCard } from '@/components/common/GlassCard';
@@ -275,6 +275,14 @@ export default function MissionControl() {
             <p className="mt-2 text-sm text-muted-foreground max-w-md">
               {mission.learning_objective}
             </p>
+            {mission.ai_narrative && (
+              <div className="mt-3 rounded-lg border border-primary/25 bg-primary/[0.06] px-3.5 py-2.5">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-primary/80 mb-0.5">
+                  Mentor's take
+                </div>
+                <div className="text-sm text-foreground/95">{mission.ai_narrative}</div>
+              </div>
+            )}
             <div className="mt-6 grid grid-cols-3 gap-6">
               <div>
                 <div className="overline mb-1">Focus</div>
@@ -391,6 +399,58 @@ export default function MissionControl() {
             )}
           </div>
         </GlassCard>
+
+        {/* Adaptive Mission Engine — Tomorrow Preview + Week Goal */}
+        {(mission.tomorrow_preview || mission.week_goal) && (
+          <GlassCard className="p-6" data-testid="mission-adaptive-forecast">
+            <WidgetHeader icon={Route} title="What's next · adaptive forecast" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+              {mission.tomorrow_preview && (
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-4">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-primary/80 mb-1">
+                    Tomorrow preview
+                  </div>
+                  <div className="text-sm font-medium">{mission.tomorrow_preview.focus}</div>
+                  {mission.tomorrow_preview.why && (
+                    <div className="text-xs text-muted-foreground mt-1.5">{mission.tomorrow_preview.why}</div>
+                  )}
+                  {mission.tomorrow_preview.estimated_duration && (
+                    <div className="text-[10px] text-muted-foreground/80 mt-2 font-mono uppercase tracking-wider">
+                      Est. {mission.tomorrow_preview.estimated_duration} min
+                    </div>
+                  )}
+                </div>
+              )}
+              {mission.week_goal && (
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-4">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-primary/80 mb-1">
+                    This week goal
+                  </div>
+                  <div className="text-sm font-medium">{mission.week_goal.headline}</div>
+                  {Array.isArray(mission.week_goal.milestones) && (
+                    <ul className="mt-2 space-y-1">
+                      {mission.week_goal.milestones.slice(0, 3).map((m, i) => (
+                        <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
+                          <span className="text-primary/60 mt-0.5">·</span>
+                          <span>{m}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {Array.isArray(mission.week_goal.target_companies) && mission.week_goal.target_companies.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {mission.week_goal.target_companies.slice(0, 4).map((c) => (
+                        <span key={c} className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-primary/25 text-primary/90 bg-primary/[0.06]">
+                          {c}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </GlassCard>
+        )}
 
         {/* Interview Readiness */}
         <GlassCard data-testid={DASHBOARD.widgetReadiness} className="p-6">

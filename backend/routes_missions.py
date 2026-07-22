@@ -1,7 +1,10 @@
 """Mission + Dashboard + Coding Arena + Feedback + Knowledge tree routes."""
 from datetime import datetime, timezone, timedelta
+import logging
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
+
+logger = logging.getLogger(__name__)
 
 from auth_utils import get_current_user
 from models import (
@@ -167,6 +170,22 @@ async def _generate_today_mission(db, user_id: str) -> DailyMission:
         f"Today's mission: {mission.title}",
         description=mission.focus_area,
     )
+
+    # Adaptive Mission Engine (Sprint · iter 13): enrich with AI narrative +
+    # tomorrow preview + week goal. Silent no-op if AI is unavailable.
+    try:
+        from ai_mentor.mission_planner import enrich_mission
+        mission_doc = mission.model_dump()
+        enriched = await enrich_mission(db, user_id=user_id, mission_doc=mission_doc)
+        if enriched is not mission_doc:
+            mission = DailyMission(**_clean(enriched)) if _clean(enriched) else mission
+        else:
+            for k in ("ai_narrative", "tomorrow_preview", "week_goal"):
+                if enriched.get(k) is not None:
+                    setattr(mission, k, enriched[k])
+    except Exception as e:  # noqa: BLE001 — never let AI kill mission gen
+        logger.warning("mission_planner enrichment failed: %s", e)
+
     return mission
 
 
@@ -178,7 +197,19 @@ async def get_todays_mission(user=Depends(get_current_user)):
     today = today_date_str()
     doc = await db.daily_missions.find_one({"user_id": user["id"], "date": today})
     if doc:
-        return DailyMission(**_clean(doc))
+        mission = DailyMission(**_clean(doc))
+        # Lazy-enrich existing missions that pre-date the Adaptive Mission
+        # Engine (or where the AI layer was unavailable on generation day).
+        if not (mission.ai_narrative or mission.tomorrow_preview or mission.week_goal):
+            try:
+                from ai_mentor.mission_planner import enrich_mission
+                enriched = await enrich_mission(db, user_id=user["id"], mission_doc=_clean(doc))
+                for k in ("ai_narrative", "tomorrow_preview", "week_goal"):
+                    if enriched.get(k) is not None:
+                        setattr(mission, k, enriched[k])
+            except Exception as e:  # noqa: BLE001
+                logger.warning("mission_planner lazy-enrich failed: %s", e)
+        return mission
     return await _generate_today_mission(db, user["id"])
 
 
