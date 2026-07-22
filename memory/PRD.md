@@ -81,6 +81,27 @@ Build the production-ready foundation for an AI-powered Interview Operating Syst
 - **New DB collections + indexes**: problem_assignments (by user+mission, user+pattern), problem_feedback (by user+time), mission_adjustments (by user+date), weaknesses (by user+pattern).
 - **Testing**: 15/15 iteration-3 pytest passing + 15/15 iter2 + 15/15 iter1. Frontend Playwright validated task-toggle style, Company Readiness, drill-down, Coding Arena feedback dialog, Practice More, LeetCode links.
 
+## What's been implemented — 2026-02-01 (iteration 9 · AI KB Stabilization)
+### 🐛 Bug fix — "Gemini rate/quota limit reached" false-positive
+- **Root cause**: `/app/backend/ai_service.py::_classify()` used naked substring matching. `if "rate" in low` was matching the word `gen**erate**` (present in virtually every litellm error like `"Failed to generate chat completion: …"`). So every legitimate 4xx from Gemini — bad API key, deprecated model, invalid model name — got mis-labelled as **rate_limit / 429**. `"500" in low` had the same over-matching problem.
+- **Fix**: rewrote `_classify` to use `err.__class__.__name__` first, then compiled regex patterns with word boundaries (`\brate[\s_]*limit\b`, `\b429\b`, etc.). Every naked substring removed. Added two new error kinds — `model_not_found` (very common — deprecated model in Settings) and `empty_response`. Added structured `LLM request start/ok/error` logging with class + first 400 chars of the raw SDK message for future debugging.
+- **Verified by testing agent**: bogus model → 404 `model_not_found`; bad key → 401 `invalid_key`; empty key → 400 `missing_key`; happy path → cached (2nd call preserves `generated_at`); regenerate → new timestamp.
+
+### 🧹 Knowledge page cleanup (per user spec)
+- **Removed** the `Interview Tips` and `Common Mistakes` **tabs** from `AIContentTabs.jsx`.
+- **Added** a new component `AIInterviewCards.jsx` that renders those two sections as **top summary cards** above the tabs card on the Deep Topic page.
+- **Kept remaining 7 tabs**: Theory, Examples, Flashcards, Related Topics, Prerequisites, Articles (stub), Videos (stub).
+- **Zero redesign** — same GlassCard styling, same colors, same spacing.
+
+### ⚡ Duplicate-request prevention
+- Extracted the content fetch into a new shared hook `/app/frontend/src/hooks/useAIContent.js`.
+- The hook maintains an **in-memory promise-dedupe cache** — even though two components (`AIInterviewCards` + `AIContentTabs`) both need the content, they issue **exactly one** `/content` GET per page visit. StrictMode-safe.
+- Verified by testing agent: network trace confirmed 1 request per mount.
+
+### 📊 Regression
+- **10/10 new stabilization tests pass**, full backend suite still green. Test file: `/app/backend/tests/test_iteration8_stabilization.py`. Report: `/app/test_reports/iteration_8.json`.
+- All previous endpoints untouched. MissionControl progress strip + KnowledgeBase filter chips still render.
+
 ## What's been implemented — 2026-02-01 (iteration 8 · AI Knowledge Base Generation)
 - **Modular AI backend** — three new files:
   - `/app/backend/ai_service.py` — provider-agnostic LLM shim wrapping `emergentintegrations.LlmChat`; classifies raw SDK errors into `missing_key | invalid_key | rate_limit | upstream | parse_error | unknown` for user-facing messaging.
