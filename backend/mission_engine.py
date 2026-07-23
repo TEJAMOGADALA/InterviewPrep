@@ -7,7 +7,7 @@ target date. Task-level toggling is idempotent.
 import hashlib
 import random
 from datetime import datetime, timezone, timedelta, date as date_cls
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from models import (
     DailyMission, MissionTask, TOPIC_KEYS,
@@ -16,70 +16,14 @@ from problem_bank import (
     SUBTOPIC_TO_PATTERN, PATTERN_TO_DOMAIN, PATTERN_PREREQUISITES,
     problems_by_pattern,
 )
+from roadmap import get_roadmap, topic_meta
 
 
 # --------------------- Content library ---------------------
-TOPIC_META = {
-    "dsa": {
-        "label": "DSA",
-        "subtopics": [
-            ("Sliding Window", "medium"),
-            ("Two Pointers", "easy"),
-            ("Dynamic Programming", "hard"),
-            ("Trees & Recursion", "medium"),
-            ("Graphs · BFS & DFS", "medium"),
-            ("Heaps & Priority Queues", "medium"),
-            ("Backtracking", "hard"),
-            ("Binary Search", "medium"),
-        ],
-    },
-    "java": {
-        "label": "Java",
-        "subtopics": [
-            ("Collections Framework", "easy"),
-            ("HashMap Internals", "medium"),
-            ("Concurrency & Threads", "hard"),
-            ("Streams & Lambdas", "medium"),
-            ("JVM Memory Model", "hard"),
-            ("Comparator & Comparable", "easy"),
-        ],
-    },
-    "lld": {
-        "label": "LLD",
-        "subtopics": [
-            ("SOLID Principles", "medium"),
-            ("Design Patterns · Factory", "medium"),
-            ("Observer Pattern", "medium"),
-            ("Design a Parking Lot", "medium"),
-            ("Design a Chess Game", "hard"),
-        ],
-    },
-    "hld": {
-        "label": "HLD",
-        "subtopics": [
-            ("URL Shortener", "medium"),
-            ("Rate Limiter", "hard"),
-            ("News Feed", "hard"),
-            ("Chat Application", "hard"),
-            ("CDN Design", "medium"),
-        ],
-    },
-    "operating_systems": {
-        "label": "Operating Systems",
-        "subtopics": [("Deadlocks", "medium"), ("Process Scheduling", "medium"),
-                      ("Memory Paging", "medium"), ("Semaphores & Mutex", "hard")],
-    },
-    "dbms": {
-        "label": "DBMS",
-        "subtopics": [("Transactions & ACID", "medium"), ("Indexing Strategies", "medium"),
-                      ("Normalization", "easy"), ("Concurrency Control", "hard")],
-    },
-    "computer_networks": {
-        "label": "Computer Networks",
-        "subtopics": [("TCP Handshake", "medium"), ("HTTP & HTTPS", "easy"),
-                      ("DNS Resolution", "easy"), ("Load Balancing", "medium")],
-    },
-}
+# The roadmap owns the learning catalog.  Keep this legacy-shaped name because
+# routes and the mission builder already consume it, but derive it once from
+# the versioned graph rather than maintaining a second, incomplete catalog.
+TOPIC_META = topic_meta()
 
 # Company weighting bias for topic urgency.
 COMPANY_BIAS = {
@@ -214,6 +158,89 @@ def prerequisite_revisions_for(pattern: str) -> List[Tuple[str, str]]:
     return PATTERN_PREREQUISITES.get(pattern, [])
 
 
+def get_candidate_topics(topic: str) -> List[dict]:
+    """Return roadmap-backed learning topics eligible within one track."""
+    roadmap = get_roadmap()
+    track = roadmap.get(topic)
+    if not track:
+        return []
+
+    candidates = []
+    for module in roadmap.children(track["id"]):
+        candidates.extend(
+            node for node in roadmap.children(module["id"])
+            if node.get("type") == "topic"
+        )
+    return candidates
+
+
+def rank_candidate_topics(
+    candidates: List[dict],
+    knowledge_nodes: Dict[str, dict],
+    target_companies: List[str],
+    rng: random.Random,
+) -> dict:
+    """Return the best learner-aware candidate, using RNG for exact ties."""
+    roadmap = get_roadmap()
+
+    def ranking_key(candidate: dict) -> tuple:
+        progress = knowledge_nodes.get(candidate["id"], {})
+        status = progress.get("status", "not_started")
+        company_importance = sum(
+            roadmap.company_importance(candidate["id"], str(company).lower())
+            for company in target_companies
+        )
+        return (
+            candidate.get("status") != "locked",
+            -float(progress.get("confidence", 0.0)),
+            float(progress.get("weakness_score", 0.0)),
+            status not in ("completed", "mastered"),
+            company_importance,
+            -float(progress.get("mastery_percentage", 0.0)),
+        )
+
+    best_key = max(ranking_key(candidate) for candidate in candidates)
+    tied_candidates = [
+        candidate for candidate in candidates if ranking_key(candidate) == best_key
+    ]
+    return rng.choice(tied_candidates)
+
+
+def select_primary_topic(
+    onboarding: dict,
+    knowledge: List[dict],
+    target_companies: List[str],
+    analysis: dict,
+    mode: str,
+    rng: random.Random,
+    knowledge_nodes: Optional[Dict[str, dict]] = None,
+) -> Tuple[str, str, str]:
+    """Select the primary mission track, topic label, and base difficulty.
+
+    The branch order and random draws intentionally match the original mission
+    builder so this extraction is behavior-preserving.
+    """
+    if mode == "revise" and analysis["weak_patterns"]:
+        weak_pattern = sorted(analysis["weak_patterns"])[0]
+        domain, subtopic = PATTERN_TO_DOMAIN.get(weak_pattern, ("dsa", "Arrays"))
+        return domain, subtopic, "easy"
+
+    if mode == "advance" and analysis["strong_patterns"]:
+        # Move to next challenging area of DSA (rotate through hard patterns)
+        pattern_choice = rng.choice(["dp", "graphs", "backtracking", "heap"])
+        domain, subtopic = PATTERN_TO_DOMAIN.get(pattern_choice, ("dsa", "Dynamic Programming"))
+        return domain, subtopic, "hard"
+
+    focus_topic = choose_focus_topic(onboarding, knowledge, target_companies, rng)
+    candidate = rank_candidate_topics(
+        get_candidate_topics(focus_topic),
+        knowledge_nodes or {},
+        target_companies,
+        rng,
+    )
+    return focus_topic, candidate["label"], candidate.get("difficulty", "medium")
+
+
 # --------------------- Mission builder V2 ---------------------
 
 def build_mission_for_user(
@@ -224,6 +251,7 @@ def build_mission_for_user(
     recent_feedback: Optional[List[dict]] = None,
     extra_practice_count_yesterday: int = 0,
     ds: Optional[str] = None,
+    knowledge_nodes: Optional[Dict[str, dict]] = None,
 ) -> tuple[DailyMission, dict]:
     """Return (mission, adjustment_meta). adjustment_meta describes adaptive decisions."""
     ds = ds or today_date_str()
@@ -241,23 +269,9 @@ def build_mission_for_user(
     analysis = analyze_recent_feedback(recent_feedback or [])
     mode = determine_mode(analysis)
 
-    # Choose focus: if in revise mode, force weakest pattern (sorted for determinism)
-    if mode == "revise" and analysis["weak_patterns"]:
-        weak_pattern = sorted(analysis["weak_patterns"])[0]
-        domain, subtopic = PATTERN_TO_DOMAIN.get(weak_pattern, ("dsa", "Arrays"))
-        focus_topic = domain
-        base_difficulty = "easy"
-    elif mode == "advance" and analysis["strong_patterns"]:
-        # Move to next challenging area of DSA (rotate through hard patterns)
-        focus_topic = "dsa"
-        harder_patterns = ["dp", "graphs", "backtracking", "heap"]
-        pattern_choice = rng.choice(harder_patterns)
-        domain, subtopic = PATTERN_TO_DOMAIN.get(pattern_choice, ("dsa", "Dynamic Programming"))
-        base_difficulty = "hard"
-    else:
-        focus_topic = choose_focus_topic(onboarding, knowledge, target_companies, rng)
-        meta_sub = TOPIC_META[focus_topic]["subtopics"]
-        subtopic, base_difficulty = rng.choice(meta_sub)
+    focus_topic, subtopic, base_difficulty = select_primary_topic(
+        onboarding, knowledge, target_companies, analysis, mode, rng, knowledge_nodes,
+    )
 
     meta = TOPIC_META[focus_topic]
 

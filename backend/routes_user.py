@@ -67,6 +67,8 @@ async def submit_onboarding(payload: OnboardingPayload, user=Depends(get_current
     await db.users.update_one(
         {"id": user["id"]}, {"$set": {"onboarding_completed": True}}
     )
+    from services.roadmap_progress import initialize_roadmap_progress_for_user
+    await initialize_roadmap_progress_for_user(db, user["id"])
     return OnboardingRecord(**doc)
 
 

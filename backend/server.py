@@ -5,6 +5,7 @@ load_dotenv(Path(__file__).parent / ".env")
 
 import os
 import logging
+import certifi
 from datetime import datetime, timezone
 from fastapi import FastAPI, APIRouter
 from starlette.middleware.cors import CORSMiddleware
@@ -19,7 +20,7 @@ from ai_mentor.mentor_routes import router as mentor_router
 
 # ------------------------- DB -------------------------
 mongo_url = os.environ["MONGO_URL"]
-client = AsyncIOMotorClient(mongo_url)
+client = AsyncIOMotorClient(mongo_url, tlsCAFile=certifi.where())
 db = client[os.environ["DB_NAME"]]
 
 # ------------------------- App -------------------------
@@ -109,7 +110,16 @@ async def on_startup():
     # ---- Roadmap migration: backfill knowledge_nodes from legacy tables ----
     from roadmap import get_roadmap, CURRENT_VERSION
     from problem_bank import problem_by_id
+    from services.roadmap_progress import (
+        RoadmapNodeProgressRepository,
+        RoadmapProgressInitializer,
+    )
     roadmap = get_roadmap(CURRENT_VERSION)
+    roadmap_progress_repository = RoadmapNodeProgressRepository(db)
+    await roadmap_progress_repository.ensure_indexes()
+    roadmap_progress_initializer = RoadmapProgressInitializer(
+        roadmap_progress_repository, roadmap,
+    )
 
     async for u in db.users.find({}, {"id": 1, "roadmap_version": 1}):
         uid = u["id"]
@@ -199,6 +209,8 @@ async def on_startup():
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                     "notes": None,
                 })
+
+        await roadmap_progress_initializer.initialize_for_user(uid)
     logger.info("Roadmap knowledge_nodes backfill complete.")
 
     # Seed admin
@@ -220,11 +232,16 @@ async def on_startup():
         })
         logger.info(f"Seeded admin user: {admin_email}")
     elif not verify_password(admin_password, existing["password_hash"]):
+        admin_id = existing["id"]
         await db.users.update_one(
             {"email": admin_email},
             {"$set": {"password_hash": hash_password(admin_password)}},
         )
         logger.info(f"Updated admin password hash for {admin_email}")
+    else:
+        admin_id = existing["id"]
+
+    await roadmap_progress_initializer.initialize_for_user(admin_id)
 
 
 @app.on_event("shutdown")

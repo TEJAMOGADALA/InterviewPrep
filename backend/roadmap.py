@@ -163,11 +163,86 @@ class RoadmapEngine:
     def track_ids(self) -> List[str]:
         return [t["id"] for t in self._raw["tracks"]]
 
+    # ---------- Learning-node traversal ----------
+    def get_learning_nodes(self) -> List[dict]:
+        """Return every explicit ``learning_nodes`` entry in roadmap order."""
+        return [node for node in self._index.values() if node.get("type") == "node"]
+
+    def get_learning_node(self, node_id: str) -> Optional[dict]:
+        """Return one explicit learning node, excluding structural nodes."""
+        node = self.get(node_id)
+        return node if node and node.get("type") == "node" else None
+
+    def get_track_learning_nodes(self, track: str) -> List[dict]:
+        """Return explicit learning nodes that belong to ``track``."""
+        return [node for node in self.get_learning_nodes() if node.get("track") == track]
+
+    def is_unlocked(self, node_id: str, completed_nodes: Iterable[str] = ()) -> bool:
+        """Return whether all roadmap prerequisites for a learning node are complete."""
+        node = self.get_learning_node(node_id)
+        if not node:
+            return False
+        completed = set(completed_nodes)
+        return all(prerequisite in completed for prerequisite in node.get("prerequisites", []))
+
+    def get_unlocked_nodes(self, completed_nodes: Iterable[str]) -> List[dict]:
+        """Return learning nodes whose roadmap prerequisites are complete."""
+        completed = set(completed_nodes)
+        return [
+            node for node in self.get_learning_nodes()
+            if self.is_unlocked(node["id"], completed)
+        ]
+
+    def get_next_learning_node(self, current_node: str) -> Optional[dict]:
+        """Return the next explicit learning node in canonical roadmap order."""
+        nodes = self.get_learning_nodes()
+        for index, node in enumerate(nodes):
+            if node["id"] == current_node:
+                return nodes[index + 1] if index + 1 < len(nodes) else None
+        return None
+
 
 # Singleton
 @lru_cache(maxsize=1)
 def get_roadmap(version: str = CURRENT_VERSION) -> RoadmapEngine:
     return RoadmapEngine(version)
+
+
+# ---------- Learning-node convenience APIs ----------
+def get_learning_nodes(version: str = CURRENT_VERSION) -> List[dict]:
+    """Return all explicit learning nodes for a roadmap version."""
+    return get_roadmap(version).get_learning_nodes()
+
+
+def get_learning_node(node_id: str, version: str = CURRENT_VERSION) -> Optional[dict]:
+    """Return one explicit learning node for a roadmap version."""
+    return get_roadmap(version).get_learning_node(node_id)
+
+
+def get_track_learning_nodes(track: str, version: str = CURRENT_VERSION) -> List[dict]:
+    """Return explicit learning nodes for a track."""
+    return get_roadmap(version).get_track_learning_nodes(track)
+
+
+def get_unlocked_nodes(
+    completed_nodes: Iterable[str], version: str = CURRENT_VERSION,
+) -> List[dict]:
+    """Return learning nodes with all roadmap prerequisites completed."""
+    return get_roadmap(version).get_unlocked_nodes(completed_nodes)
+
+
+def is_unlocked(
+    node_id: str, completed_nodes: Iterable[str] = (), version: str = CURRENT_VERSION,
+) -> bool:
+    """Return whether a learning node's roadmap prerequisites are completed."""
+    return get_roadmap(version).is_unlocked(node_id, completed_nodes)
+
+
+def get_next_learning_node(
+    current_node: str, version: str = CURRENT_VERSION,
+) -> Optional[dict]:
+    """Return the next explicit learning node in canonical roadmap order."""
+    return get_roadmap(version).get_next_learning_node(current_node)
 
 
 # ---------- Adapters for backwards compatibility ----------

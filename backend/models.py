@@ -284,6 +284,28 @@ class KnowledgeNode(BaseModel):
     updated_at: str = Field(default_factory=_now_iso)
 
 
+class RoadmapNodeProgress(BaseModel):
+    """Per-user progress for one explicit learning node in the master roadmap."""
+    user_id: str
+    node_id: str
+    track: str
+    module: str
+    topic: str
+    subtopic: str
+    status: str = Field(default="not_started", pattern="^(not_started|learning|completed|revision_due)$")
+    mastery: float = Field(default=0.0, ge=0, le=100)
+    confidence: float = Field(default=0.0, ge=0, le=10)
+    weakness_score: float = Field(default=100.0, ge=0, le=100)
+    times_practiced: int = Field(default=0, ge=0)
+    times_completed: int = Field(default=0, ge=0)
+    average_time: float = Field(default=0.0, ge=0)
+    last_practiced: Optional[datetime] = None
+    next_revision: Optional[datetime] = None
+    revision_stage: int = Field(default=0, ge=0)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class KnowledgeNoteUpdate(BaseModel):
     notes: str = Field(max_length=5000)
 

@@ -143,6 +143,10 @@ async def _attach_problems_to_mission(db, mission: DailyMission) -> None:
 async def _generate_today_mission(db, user_id: str) -> DailyMission:
     onboarding = await _require_onboarding(db, user_id)
     knowledge = await _get_knowledge(db, user_id)
+    knowledge_node_rows = await db.knowledge_nodes.find(
+        {"user_id": user_id}, {"_id": 0}
+    ).to_list(length=2000)
+    knowledge_nodes = {row["node_id"]: row for row in knowledge_node_rows}
     revisions_due = await _get_due_revisions(db, user_id)
     recent_feedback = await _get_recent_feedback(db, user_id, hours=36)
     extra_yesterday = await _count_extra_practice_yesterday(db, user_id)
@@ -151,6 +155,7 @@ async def _generate_today_mission(db, user_id: str) -> DailyMission:
         user_id, onboarding, knowledge, revisions_due,
         recent_feedback=recent_feedback,
         extra_practice_count_yesterday=extra_yesterday,
+        knowledge_nodes=knowledge_nodes,
     )
     await db.daily_missions.insert_one(mission.model_dump())
     await _attach_problems_to_mission(db, mission)
