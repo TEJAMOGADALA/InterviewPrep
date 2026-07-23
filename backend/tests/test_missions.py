@@ -7,12 +7,34 @@ from datetime import datetime, timezone, timedelta
 import pytest
 import requests
 
+# BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
+# if not BASE_URL:
+#     with open("/app/frontend/.env") as f:
+#         for line in f:
+#             if line.startswith("REACT_APP_BACKEND_URL="):
+#                 BASE_URL = line.split("=", 1)[1].strip().rstrip("/")
+
+from pathlib import Path
+
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
+
 if not BASE_URL:
-    with open("/app/frontend/.env") as f:
-        for line in f:
-            if line.startswith("REACT_APP_BACKEND_URL="):
-                BASE_URL = line.split("=", 1)[1].strip().rstrip("/")
+    frontend_env = (
+        Path(__file__).resolve().parents[2]
+        / "frontend"
+        / ".env"
+    )
+
+    if frontend_env.exists():
+        with frontend_env.open() as f:
+            for line in f:
+                if line.startswith("REACT_APP_BACKEND_URL="):
+                    BASE_URL = line.split("=", 1)[1].strip().rstrip("/")
+
+if not BASE_URL:
+    raise RuntimeError(
+        "REACT_APP_BACKEND_URL is not configured."
+    )
 
 
 ONBOARDING = {

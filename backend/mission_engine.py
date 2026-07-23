@@ -252,6 +252,7 @@ def build_mission_for_user(
     extra_practice_count_yesterday: int = 0,
     ds: Optional[str] = None,
     knowledge_nodes: Optional[Dict[str, dict]] = None,
+    learning_recommendation: Optional[dict] = None,
 ) -> tuple[DailyMission, dict]:
     """Return (mission, adjustment_meta). adjustment_meta describes adaptive decisions."""
     ds = ds or today_date_str()
@@ -269,9 +270,14 @@ def build_mission_for_user(
     analysis = analyze_recent_feedback(recent_feedback or [])
     mode = determine_mode(analysis)
 
-    focus_topic, subtopic, base_difficulty = select_primary_topic(
-        onboarding, knowledge, target_companies, analysis, mode, rng, knowledge_nodes,
-    )
+    if learning_recommendation is not None:
+        focus_topic = learning_recommendation.get("track") or "dsa"
+        subtopic = learning_recommendation.get("label") or learning_recommendation.get("subtopic") or ""
+        base_difficulty = learning_recommendation.get("difficulty") or "medium"
+    else:
+        focus_topic, subtopic, base_difficulty = select_primary_topic(
+            onboarding, knowledge, target_companies, analysis, mode, rng, knowledge_nodes,
+        )
 
     meta = TOPIC_META[focus_topic]
 
@@ -337,8 +343,26 @@ def build_mission_for_user(
         ))
 
     # Supporting study task
-    support_pool = [t for t in TOPIC_KEYS if t != focus_topic]
-    support_topic = rng.choice(support_pool)
+    support_topic = None
+    if learning_recommendation is not None:
+        support_track = learning_recommendation.get("support_track")
+        if support_track in TOPIC_KEYS:
+            support_topic = support_track
+        else:
+            support_topic = learning_recommendation.get("support_topic")
+            if support_topic in TOPIC_KEYS:
+                support_topic = support_topic
+            else:
+                support_node = learning_recommendation.get("support_node")
+                if support_node in TOPIC_KEYS:
+                    support_topic = support_node
+                else:
+                    support_topic = None
+
+    if support_topic is None:
+        support_pool = [t for t in TOPIC_KEYS if t != focus_topic]
+        support_topic = rng.choice(support_pool)
+
     support_meta = TOPIC_META[support_topic]
     support_sub, _ = rng.choice(support_meta["subtopics"])
     tasks.append(MissionTask(

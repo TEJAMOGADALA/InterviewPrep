@@ -2,6 +2,8 @@ import asyncio
 
 import pytest
 
+import mission_engine
+from mission_engine import build_mission_for_user
 from services.learning_engine.builder import build_learning_recommendation
 from services.learning_engine.planner import get_today_learning_node
 from services.learning_engine.ranking import rank_learning_nodes
@@ -115,3 +117,75 @@ def test_revision_selection_uses_due_reviews():
     assert len(due_nodes) == 1
     assert has_due_revision("user-1", progress_rows=rows)
     assert get_highest_priority_revision("user-1", progress_rows=rows)["node_id"] == "dsa.foundations.arrays.prefix_sum"
+
+
+def test_mission_engine_uses_learning_recommendation_when_provided():
+    mission, _ = build_mission_for_user(
+        "user-1",
+        onboarding={"target_companies": ["google"], "self_assessment": {"dsa": 6, "java": 5, "lld": 4, "hld": 4}},
+        knowledge=[],
+        revisions_due=[],
+        recent_feedback=[],
+        ds="2026-07-23",
+        knowledge_nodes={},
+        learning_recommendation={
+            "track": "java",
+            "label": "Concurrency",
+            "difficulty": "hard",
+            "subtopic": "Threads",
+        },
+    )
+
+    assert mission.focus_topic == "java"
+    assert mission.difficulty == "hard"
+    assert "Concurrency" in mission.focus_area
+
+
+def test_mission_engine_uses_support_recommendation_when_provided(monkeypatch):
+    class FakeRandom:
+        def choice(self, seq):
+            return seq[0]
+
+    monkeypatch.setattr(mission_engine, "_seeded_random", lambda user_id, ds: FakeRandom())
+
+    mission, _ = build_mission_for_user(
+        "user-1",
+        onboarding={"target_companies": ["google"], "self_assessment": {"dsa": 6, "java": 5, "lld": 4, "hld": 4}},
+        knowledge=[],
+        revisions_due=[],
+        recent_feedback=[],
+        ds="2026-07-23",
+        knowledge_nodes={},
+        learning_recommendation={
+            "track": "java",
+            "label": "Concurrency",
+            "difficulty": "hard",
+            "subtopic": "Threads",
+            "support_track": "lld",
+        },
+    )
+
+    support_topics = [task.topic for task in mission.tasks if task.kind == "study"]
+    assert "lld" in support_topics
+
+
+def test_mission_engine_preserves_existing_selection_when_recommendation_is_none(monkeypatch):
+    def fake_select_primary_topic(*args, **kwargs):
+        return "lld", "Memory Management", "easy"
+
+    monkeypatch.setattr(mission_engine, "select_primary_topic", fake_select_primary_topic)
+
+    mission, _ = build_mission_for_user(
+        "user-1",
+        onboarding={"target_companies": ["google"], "self_assessment": {"dsa": 6, "java": 5, "lld": 4, "hld": 4}},
+        knowledge=[],
+        revisions_due=[],
+        recent_feedback=[],
+        ds="2026-07-23",
+        knowledge_nodes={},
+        learning_recommendation=None,
+    )
+
+    assert mission.focus_topic == "lld"
+    assert mission.difficulty == "easy"
+    assert "Memory Management" in mission.focus_area

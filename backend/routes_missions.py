@@ -24,6 +24,7 @@ from problem_bank import (
     PROBLEMS, PATTERN_TO_DOMAIN, pattern_counts, problems_by_pattern,
     problem_by_id,
 )
+from services.learning_engine.planner import get_today_learning_node
 
 router = APIRouter(prefix="/api", tags=["missions"])
 
@@ -151,11 +152,14 @@ async def _generate_today_mission(db, user_id: str) -> DailyMission:
     recent_feedback = await _get_recent_feedback(db, user_id, hours=36)
     extra_yesterday = await _count_extra_practice_yesterday(db, user_id)
 
+    learning_recommendation = await get_today_learning_node(user_id, db=db)
+
     mission, adjustment = build_mission_for_user(
         user_id, onboarding, knowledge, revisions_due,
         recent_feedback=recent_feedback,
         extra_practice_count_yesterday=extra_yesterday,
         knowledge_nodes=knowledge_nodes,
+        learning_recommendation=learning_recommendation,
     )
     await db.daily_missions.insert_one(mission.model_dump())
     await _attach_problems_to_mission(db, mission)
