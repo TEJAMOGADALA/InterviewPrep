@@ -131,6 +131,8 @@ class MissionTask(BaseModel):
     # Optional linkage for adaptive coding practice
     pattern: Optional[str] = None
     problem_count: Optional[int] = None
+    # Canonical roadmap node id for Knowledge Base / AI Mentor linkage
+    node_id: Optional[str] = None
 
 
 class DailyMission(BaseModel):

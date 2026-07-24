@@ -418,6 +418,45 @@ async def get_summary(user=Depends(get_current_user)):
     bookmarked_count = sum(1 for _, p in progress_map.items() if p.get("bookmarked"))
     favorite_count = sum(1 for _, p in progress_map.items() if p.get("favorite"))
 
+    # Build canonical progress object (single source of truth for UI)
+    # Map key tracks: dsa, lld, hld, core_cs (core_cs aggregates networks/os/dbms)
+    # Use roadmap.track ids to find rolls
+    def _get_track_roll(track_id):
+        for t in tracks_summary:
+            if t["id"] == track_id:
+                return t
+        return None
+
+    core_components = ["computer_networks", "operating_systems", "dbms"]
+    # Per-track progress
+    tracks_progress = {}
+    for tid in ("dsa", "lld", "hld"):
+        tr = _get_track_roll(tid)
+        if tr:
+            completed = int(tr.get("completed_topics", 0))
+            total = int(tr.get("total_topics", 0))
+            pct = int(round((completed / total) * 100.0)) if total else 0
+            tracks_progress[tid] = {"completed": completed, "total": total, "percentage": pct}
+        else:
+            tracks_progress[tid] = {"completed": 0, "total": 0, "percentage": 0}
+
+    # Core CS aggregates
+    core_completed = 0
+    core_total = 0
+    for comp in core_components:
+        tr = _get_track_roll(comp)
+        if tr:
+            core_completed += int(tr.get("completed_topics", 0))
+            core_total += int(tr.get("total_topics", 0))
+    core_pct = int(round((core_completed / core_total) * 100.0)) if core_total else 0
+    tracks_progress["core_cs"] = {"completed": core_completed, "total": core_total, "percentage": core_pct}
+
+    progress_obj = {
+        "overall": {"completed": int(total_completed), "total": int(total_topics), "percentage": int(round((total_completed / total_topics) * 100.0)) if total_topics else 0},
+        "tracks": tracks_progress,
+        "today": {"completed": len(today_completed_ids), "total": len(today_completed_ids)},
+    }
+
     return {
         "version": version,
         "tracks": tracks_summary,
@@ -438,7 +477,10 @@ async def get_summary(user=Depends(get_current_user)):
             "bookmarked": bookmarked_count,
             "favorite": favorite_count,
         },
+        "progress": progress_obj,
     }
+
+
 
 
 # ============ Notes ============

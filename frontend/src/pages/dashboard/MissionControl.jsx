@@ -1,19 +1,21 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
-  Target, Flame, ShieldCheck, RefreshCcw, GraduationCap,
-  Activity, Bell, Sparkles, Check, SkipForward, Loader2,
-  CheckCircle2, Circle, Clock, Zap, TrendingUp, ChevronDown, Building2, Route,
+  Target, ShieldCheck, RefreshCcw, GraduationCap,
+  Sparkles, Check, SkipForward, Loader2,
+  CheckCircle2, Circle, Clock, Zap, TrendingUp, ChevronDown, Route,
 } from 'lucide-react';
 import { format, formatDistanceToNow, parseISO } from 'date-fns';
 import { GlassCard } from '@/components/common/GlassCard';
 import { DASHBOARD } from '@/constants/testIds';
 import { useAuth } from '@/contexts/AuthContext';
-import { dashboardService, missionService, knowledgeService, roadmapService } from '@/services/mission.service';
+import { dashboardService, missionService, roadmapService } from '@/services/mission.service';
 import { TARGET_COMPANIES } from '@/config/companies';
 import { formatApiError } from '@/utils/formatApiError';
 import { cn } from '@/lib/utils';
+import { useMentor } from '@/hooks/useMentor';
 import { ProgressBar } from '@/components/progress/ProgressBar';
 
 const ACTIVITY_META = {
@@ -61,9 +63,10 @@ export default function MissionControl() {
   const [loading, setLoading] = useState(true);
   const [busyTask, setBusyTask] = useState(null);
   const [busyAction, setBusyAction] = useState(null);
-  const [tree, setTree] = useState(null);
   const [expandedDomain, setExpandedDomain] = useState(null);
   const [summary, setSummary] = useState(null);
+  const navigate = useNavigate();
+  const mentor = useMentor();
 
   const load = useCallback(async () => {
     try {
@@ -82,13 +85,7 @@ export default function MissionControl() {
 
   useEffect(() => { load(); }, [load]);
 
-  const ensureTree = async () => {
-    if (tree) return;
-    try {
-      const t = await knowledgeService.tree();
-      setTree(t);
-    } catch (e) { toast.error(formatApiError(e)); }
-  };
+  // knowledge tree removed from Mission Control (frontend-only redesign)
 
   const onToggleTask = async (taskId) => {
     if (!data) return;
@@ -125,6 +122,22 @@ export default function MissionControl() {
     } catch (err) {
       toast.error(formatApiError(err));
     } finally { setBusyAction(null); }
+  };
+
+  const onOpenKnowledgeNode = (nodeId) => {
+    navigate(`/app/knowledge-base/nodes/${encodeURIComponent(nodeId)}`);
+  };
+
+  const onOpenMentorForNode = async (nodeId) => {
+    setBusyAction(`mentor-${nodeId}`);
+    try {
+      await mentor.startNewChat({ topicNodeId: nodeId });
+      navigate('/app/ai-mentor');
+    } catch (err) {
+      toast.error(formatApiError(err));
+    } finally {
+      setBusyAction(null);
+    }
   };
 
   if (loading || !data) {
@@ -358,6 +371,29 @@ export default function MissionControl() {
                         Open Arena
                       </a>
                     )}
+                    {t.node_id && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onOpenKnowledgeNode(t.node_id)}
+                          className="h-10 inline-flex items-center gap-2 px-3 rounded-lg border border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05] text-xs font-medium text-foreground transition-colors"
+                          data-testid={`mission-task-kb-${t.id}`}
+                        >
+                          Open KB
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onOpenMentorForNode(t.node_id)}
+                          disabled={busyAction === `mentor-${t.node_id}`}
+                          className="h-10 inline-flex items-center justify-center w-10 rounded-lg border border-primary/30 bg-primary/10 hover:bg-primary/15 text-primary transition-colors disabled:opacity-50"
+                          data-testid={`mission-task-mentor-${t.id}`}
+                          aria-label="Ask Mentor"
+                          title="Ask Mentor"
+                        >
+                          <Sparkles className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -407,43 +443,42 @@ export default function MissionControl() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
               {mission.tomorrow_preview && (
                 <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-4">
-                  <div className="text-[10px] font-mono uppercase tracking-wider text-primary/80 mb-1">
-                    Tomorrow preview
-                  </div>
-                  <div className="text-sm font-medium">{mission.tomorrow_preview.focus}</div>
-                  {mission.tomorrow_preview.why && (
-                    <div className="text-xs text-muted-foreground mt-1.5">{mission.tomorrow_preview.why}</div>
-                  )}
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-primary/80 mb-1">Tomorrow</div>
+                  <ul className="text-sm space-y-1 mb-2">
+                    <li className="flex items-center gap-2">
+                      <span className="text-primary">•</span>
+                      <span className="truncate">{mission.tomorrow_preview.focus}</span>
+                    </li>
+                    {Array.isArray(mission.tomorrow_preview.topics) && mission.tomorrow_preview.topics.slice(0, 4).map((t, i) => (
+                      <li key={i} className="flex items-center gap-2">
+                        <span className="text-primary">•</span>
+                        <span className="truncate">{t}</span>
+                      </li>
+                    ))}
+                  </ul>
                   {mission.tomorrow_preview.estimated_duration && (
-                    <div className="text-[10px] text-muted-foreground/80 mt-2 font-mono uppercase tracking-wider">
-                      Est. {mission.tomorrow_preview.estimated_duration} min
+                    <div className="text-[12px] text-muted-foreground flex items-center gap-2">
+                      <span>⏱</span>
+                      <span className="font-mono">{mission.tomorrow_preview.estimated_duration} min</span>
                     </div>
                   )}
                 </div>
               )}
               {mission.week_goal && (
                 <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-4">
-                  <div className="text-[10px] font-mono uppercase tracking-wider text-primary/80 mb-1">
-                    This week goal
-                  </div>
-                  <div className="text-sm font-medium">{mission.week_goal.headline}</div>
-                  {Array.isArray(mission.week_goal.milestones) && (
-                    <ul className="mt-2 space-y-1">
-                      {mission.week_goal.milestones.slice(0, 3).map((m, i) => (
-                        <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
-                          <span className="text-primary/60 mt-0.5">·</span>
-                          <span>{m}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {Array.isArray(mission.week_goal.target_companies) && mission.week_goal.target_companies.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {mission.week_goal.target_companies.slice(0, 4).map((c) => (
-                        <span key={c} className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-primary/25 text-primary/90 bg-primary/[0.06]">
-                          {c}
-                        </span>
-                      ))}
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-primary/80 mb-1">This week</div>
+                  <ul className="text-sm space-y-1 mb-2">
+                    {Array.isArray(mission.week_goal.milestones) && mission.week_goal.milestones.slice(0, 6).map((m, i) => (
+                      <li key={i} className="flex items-center gap-2">
+                        <span className="text-emerald-400">✓</span>
+                        <span className="truncate">{m}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {mission.week_goal.estimated_hours && (
+                    <div className="text-[12px] text-muted-foreground flex items-center gap-2">
+                      <span>≈</span>
+                      <span className="font-mono">{mission.week_goal.estimated_hours}h</span>
                     </div>
                   )}
                 </div>
@@ -470,60 +505,7 @@ export default function MissionControl() {
           <p className="mt-3 text-xs text-muted-foreground">Weighted across DSA · Java · LLD · HLD · Core CS.</p>
         </GlassCard>
 
-        {/* Study Streak */}
-        <GlassCard data-testid={DASHBOARD.widgetStreak} className="p-6">
-          <WidgetHeader icon={Flame} title="Study Streak" />
-          <div className="flex items-baseline gap-2">
-            <span className="font-display text-4xl font-semibold tracking-tight">{streak.current}</span>
-            <span className="text-sm text-muted-foreground">days</span>
-          </div>
-          <div className="mt-4 flex gap-1.5">
-            {streak.week_grid.map((active, i) => (
-              <span key={i}
-                className={cn('flex-1 h-5 rounded-md border',
-                  active ? 'bg-primary/40 border-primary/50' : 'bg-white/[0.04] border-white/[0.06]')}
-              />
-            ))}
-          </div>
-          <p className="mt-3 text-xs text-muted-foreground">
-            {streak.current > 0 ? `Longest streak · ${streak.longest} days` : 'Complete today\'s mission to start.'}
-          </p>
-        </GlassCard>
-
-        {/* Company Readiness */}
-        <GlassCard data-testid="dashboard-widget-company-readiness" className="p-6 md:col-span-1 lg:col-span-2">
-          <WidgetHeader icon={Building2} title="Company Readiness" />
-          {company_readiness?.length ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-2.5">
-              {company_readiness.map((c) => {
-                const meta = TARGET_COMPANIES.find((x) => x.id === c.company_id);
-                if (!meta) return null;
-                return (
-                  <div key={c.company_id} className="flex items-center gap-3">
-                    <span
-                      className="h-7 w-7 rounded-md border border-white/10 flex items-center justify-center font-mono text-xs shrink-0"
-                      style={{ background: `${meta.accent}20`, color: meta.accent === '#000000' ? '#fff' : meta.accent }}
-                    >
-                      {meta.name[0]}
-                    </span>
-                    <span className="text-sm flex-1 flex items-center gap-1.5">
-                      {meta.name}
-                      {c.is_target && (
-                        <span className="text-[9px] font-mono text-primary uppercase tracking-widest">Target</span>
-                      )}
-                    </span>
-                    <div className="w-24 h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
-                      <div className="h-full bg-primary/80" style={{ width: `${c.score}%` }} />
-                    </div>
-                    <span className="font-mono text-xs text-muted-foreground w-10 text-right">
-                      {Math.round(c.score)}%
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : <p className="text-sm text-muted-foreground">Set target companies to see readiness.</p>}
-        </GlassCard>
+        {/* Study Streak and Company Readiness removed for Execution Dashboard */}
 
         {/* Upcoming Revision */}
         <GlassCard data-testid={DASHBOARD.widgetRevision} className="p-6 md:col-span-1 lg:col-span-2">
@@ -550,141 +532,11 @@ export default function MissionControl() {
           <p className="mt-4 text-xs text-muted-foreground">Spaced repetition · 1d → 3d → 7d → 14d → 30d → 60d (confidence-adjusted).</p>
         </GlassCard>
 
-        {/* Knowledge Progress — drill-down */}
-        <GlassCard data-testid={DASHBOARD.widgetKnowledge} className="p-6 md:col-span-2 lg:col-span-2">
-          <WidgetHeader
-            icon={GraduationCap}
-            title="Knowledge Progress"
-            action={
-              <span className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">
-                Click to drill down
-              </span>
-            }
-          />
-          <div className="space-y-2.5">
-            {knowledge.map((k) => {
-              const expanded = expandedDomain === k.topic;
-              const subs = tree?.find((d) => d.domain === k.topic)?.subtopics || [];
-              return (
-                <div key={k.topic}>
-                  <button
-                    onClick={async () => {
-                      await ensureTree();
-                      setExpandedDomain(expanded ? null : k.topic);
-                    }}
-                    data-testid={`knowledge-domain-${k.topic}`}
-                    className="w-full text-left rounded-lg border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] px-3 py-2 transition-colors"
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-sm flex items-center gap-2">
-                        <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', expanded && 'rotate-180')} />
-                        {k.label}
-                      </span>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {Math.round(k.score)}%{k.completions > 0 && <span className="ml-1 text-primary">· {k.completions}✓</span>}
-                      </span>
-                    </div>
-                    <div className="h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
-                      <div className="h-full bg-primary/80" style={{ width: `${k.score}%` }} />
-                    </div>
-                  </button>
-                  <AnimatePresence>
-                    {expanded && subs.length > 0 && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }} className="overflow-hidden"
-                      >
-                        <div className="pl-6 pr-2 py-2 space-y-2">
-                          {subs.map((s, i) => (
-                            <div key={`${k.topic}-${s.pattern || s.label}-${i}`}
-                              className="rounded-md border border-white/[0.04] bg-white/[0.015] px-3 py-2">
-                              <div className="flex items-center justify-between text-xs mb-1">
-                                <span>{s.label}</span>
-                                <span className="font-mono text-muted-foreground">
-                                  {Math.round(s.progress)}%
-                                  {s.problems_solved > 0 && <span className="ml-1.5">· {s.problems_solved}✓</span>}
-                                  {s.avg_confidence != null && <span className="ml-1.5">· conf {s.avg_confidence}</span>}
-                                </span>
-                              </div>
-                              <div className="h-1 rounded-full bg-white/[0.04] overflow-hidden">
-                                <div className={cn('h-full',
-                                  s.revision_status === 'due' ? 'bg-amber-400/80' :
-                                  s.revision_status === 'mastered' ? 'bg-emerald-400/80' : 'bg-primary/70')}
-                                  style={{ width: `${s.progress}%` }} />
-                              </div>
-                              <div className="mt-1 flex items-center gap-2">
-                                <span className={cn('text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-sm',
-                                  s.revision_status === 'due' ? 'text-amber-300 bg-amber-400/10' :
-                                  s.revision_status === 'mastered' ? 'text-emerald-300 bg-emerald-400/10' :
-                                  'text-muted-foreground bg-white/[0.03]')}>
-                                  {s.revision_status}
-                                </span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            })}
-          </div>
-        </GlassCard>
+        {/* Knowledge Progress removed from Mission Control */}
 
-        {/* Recent Activity — latest 5 */}
-        <GlassCard data-testid={DASHBOARD.widgetActivity} className="p-6 md:col-span-2 lg:col-span-2">
-          <WidgetHeader icon={Activity} title="Recent Activity" />
-          {activity.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nothing yet — start today's mission.</p>
-          ) : (
-            <div className="space-y-3">
-              {activity.slice(0, 5).map((e) => {
-                const meta = ACTIVITY_META[e.kind] || { dot: 'bg-white/30' };
-                return (
-                  <div key={e.id} className="flex items-center gap-3 text-sm">
-                    <span className={cn('h-2 w-2 rounded-full shrink-0', meta.dot)} />
-                    <span className="flex-1 truncate">{e.title}</span>
-                    <span className="text-xs text-muted-foreground font-mono whitespace-nowrap">
-                      {formatDistanceToNow(parseISO(e.ts), { addSuffix: true })}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </GlassCard>
+        {/* Recent Activity removed from Mission Control */}
 
-        {/* Notifications preview */}
-        <GlassCard data-testid={DASHBOARD.widgetNotifications} className="p-6 md:col-span-2 lg:col-span-2">
-          <WidgetHeader
-            icon={Bell} title="Notifications"
-            action={
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] font-mono text-primary">
-                {revisions.filter((r) => r.is_due).length} due
-              </span>
-            }
-          />
-          <div className="space-y-2.5">
-            <div className="rounded-lg border border-primary/30 bg-primary/[0.06] p-3">
-              <div className="flex items-center gap-2 mb-1">
-                <Sparkles className="h-3.5 w-3.5 text-primary" />
-                <span className="text-sm font-medium">Today's mission generated</span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Focus · {mission.focus_area}. Estimated {Math.round(mission.estimated_duration_minutes / 60 * 10) / 10} hours.
-              </p>
-            </div>
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-              <div className="text-sm font-medium mb-0.5">Target date locked</div>
-              <p className="text-xs text-muted-foreground">
-                {onboarding.interview_target_date
-                  ? `Aiming for ${format(parseISO(onboarding.interview_target_date), 'PPP')}.`
-                  : 'No target date set yet.'}
-              </p>
-            </div>
-          </div>
-        </GlassCard>
+        {/* Notifications removed from Mission Control */}
       </div>
     </div>
   );

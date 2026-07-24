@@ -107,6 +107,18 @@ def test_builder_output_shape():
     assert recommendation["reason"]
 
 
+def test_planner_builds_support_and_core_recommendations_from_roadmap():
+    rows = [
+        {"node_id": "dsa.foundations.arrays.prefix_sum", "status": "completed", "confidence": 7.0, "weakness_score": 30.0, "mastery": 80.0},
+        {"node_id": "lld.patterns.creational.factory.overview", "status": "not_started", "confidence": 2.0, "weakness_score": 80.0, "mastery": 20.0, "track": "lld"},
+    ]
+    recommendation = asyncio.run(get_today_learning_node("user-1", db=FakeDB(rows)))
+
+    assert recommendation is not None
+    assert recommendation["support_track"] == "lld"
+    assert recommendation.get("support_node") is not None
+
+
 def test_revision_selection_uses_due_reviews():
     rows = [
         {"node_id": "dsa.foundations.arrays.traversal", "status": "completed", "confidence": 8.0, "weakness_score": 20.0, "mastery": 90.0},
@@ -133,12 +145,42 @@ def test_mission_engine_uses_learning_recommendation_when_provided():
             "label": "Concurrency",
             "difficulty": "hard",
             "subtopic": "Threads",
+            "node_id": "java.concurrency.threads",
         },
     )
 
     assert mission.focus_topic == "java"
     assert mission.difficulty == "hard"
     assert "Concurrency" in mission.focus_area
+    assert any(task.node_id == "java.concurrency.threads" for task in mission.tasks)
+
+
+def test_mission_engine_does_not_use_legacy_selection_when_recommendation_is_provided(monkeypatch):
+    def fail_select_primary_topic(*args, **kwargs):
+        raise AssertionError("Legacy topic selection must not run when recommendation is provided")
+
+    monkeypatch.setattr(mission_engine, "select_primary_topic", fail_select_primary_topic)
+
+    mission, _ = build_mission_for_user(
+        "user-1",
+        onboarding={"target_companies": ["google"], "self_assessment": {"dsa": 6, "java": 5, "lld": 4, "hld": 4}},
+        knowledge=[],
+        revisions_due=[],
+        recent_feedback=[],
+        ds="2026-07-23",
+        knowledge_nodes={},
+        learning_recommendation={
+            "track": "java",
+            "label": "Concurrency",
+            "difficulty": "hard",
+            "subtopic": "Threads",
+            "node_id": "java.concurrency.threads",
+        },
+    )
+
+    assert mission.focus_topic == "java"
+    assert mission.difficulty == "hard"
+    assert any(task.node_id == "java.concurrency.threads" for task in mission.tasks)
 
 
 def test_mission_engine_uses_support_recommendation_when_provided(monkeypatch):
@@ -169,6 +211,63 @@ def test_mission_engine_uses_support_recommendation_when_provided(monkeypatch):
     assert "lld" in support_topics
 
 
+def test_mission_engine_does_not_fallback_to_legacy_support_topic_when_track_is_valid_but_no_unlocked_node(monkeypatch):
+    class FakeRandom:
+        def choice(self, seq):
+            return seq[0]
+
+    monkeypatch.setattr(mission_engine, "_seeded_random", lambda user_id, ds: FakeRandom())
+    monkeypatch.setattr(mission_engine, "_find_roadmap_node_by_id", lambda node_id: None)
+    monkeypatch.setattr(mission_engine, "_select_unlocked_roadmap_node", lambda track, nodes: None)
+
+    mission, _ = build_mission_for_user(
+        "user-1",
+        onboarding={"target_companies": ["google"], "self_assessment": {"dsa": 6, "java": 5, "lld": 4, "hld": 4}},
+        knowledge=[],
+        revisions_due=[],
+        recent_feedback=[],
+        ds="2026-07-23",
+        knowledge_nodes={},
+        learning_recommendation={
+            "track": "java",
+            "label": "Concurrency",
+            "difficulty": "hard",
+            "subtopic": "Threads",
+            "support_track": "lld",
+        },
+    )
+
+    assert not any(task.kind == "study" and task.topic == "lld" for task in mission.tasks)
+
+
+def test_mission_engine_does_not_fallback_to_legacy_core_topic_when_no_unlocked_core_node_available(monkeypatch):
+    class FakeRandom:
+        def choice(self, seq):
+            return seq[0]
+
+    monkeypatch.setattr(mission_engine, "_seeded_random", lambda user_id, ds: FakeRandom())
+    monkeypatch.setattr(mission_engine, "_find_roadmap_node_by_id", lambda node_id: None)
+    monkeypatch.setattr(mission_engine, "_select_unlocked_roadmap_node", lambda track, nodes: None)
+
+    mission, _ = build_mission_for_user(
+        "user-1",
+        onboarding={"target_companies": ["google"], "self_assessment": {"dsa": 6, "java": 5, "lld": 4, "hld": 4}, "daily_study_hours": 3},
+        knowledge=[],
+        revisions_due=[],
+        recent_feedback=[],
+        ds="2026-07-23",
+        knowledge_nodes={},
+        learning_recommendation={
+            "track": "java",
+            "label": "Concurrency",
+            "difficulty": "hard",
+            "subtopic": "Threads",
+        },
+    )
+
+    assert not any(task.kind == "study" and task.title.startswith("Read:") for task in mission.tasks)
+
+
 def test_mission_engine_preserves_existing_selection_when_recommendation_is_none(monkeypatch):
     def fake_select_primary_topic(*args, **kwargs):
         return "lld", "Memory Management", "easy"
@@ -189,3 +288,22 @@ def test_mission_engine_preserves_existing_selection_when_recommendation_is_none
     assert mission.focus_topic == "lld"
     assert mission.difficulty == "easy"
     assert "Memory Management" in mission.focus_area
+
+
+def test_revision_task_node_id_propagates():
+    mission, _ = build_mission_for_user(
+        "user-1",
+        onboarding={"target_companies": ["google"], "self_assessment": {"dsa": 6, "java": 5, "lld": 4, "hld": 4}},
+        knowledge=[],
+        revisions_due=[
+            {"task_title": "Revise: Prefix Sum", "topic": "dsa", "node_id": "dsa.foundations.arrays.prefix_sum"},
+        ],
+        recent_feedback=[],
+        ds="2026-07-23",
+        knowledge_nodes={},
+        learning_recommendation=None,
+    )
+
+    revise_task = next((t for t in mission.tasks if t.kind == "revise"), None)
+    assert revise_task is not None
+    assert revise_task.node_id == "dsa.foundations.arrays.prefix_sum"

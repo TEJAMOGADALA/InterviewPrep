@@ -1,4 +1,5 @@
-import { Bell, Command, Search, LogOut, User as UserIcon, Settings } from 'lucide-react';
+import { Bell, Command, Search, LogOut, User as UserIcon, Settings, Flame } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCommandPalette } from '@/contexts/CommandPaletteContext';
@@ -9,6 +10,7 @@ import {
   DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import { Sparkles } from 'lucide-react';
+import { dashboardService } from '@/services/mission.service';
 
 function initials(name = '') {
   return name.split(' ').filter(Boolean).slice(0, 2).map((s) => s[0]?.toUpperCase()).join('') || 'P';
@@ -18,7 +20,17 @@ export function Topbar() {
   const { user, logout } = useAuth();
   const { setOpen: setCmdOpen } = useCommandPalette();
   const { toggle: toggleAIPanel } = useAIPanel();
+  const [streak, setStreak] = useState(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    let mounted = true;
+    dashboardService.get().then((d) => {
+      if (!mounted) return;
+      if (d?.streak?.current != null) setStreak(d.streak.current);
+    }).catch(() => {});
+    return () => { mounted = false; };
+  }, []);
 
   return (
     <header
@@ -41,14 +53,22 @@ export function Topbar() {
         </button>
 
         <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={toggleAIPanel}
-            data-testid={APP_SHELL.aiPanelToggle}
-            className="hidden md:inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-primary/30 bg-primary/10 hover:bg-primary/15 text-sm font-medium transition-colors"
-          >
-            <Sparkles className="h-3.5 w-3.5 text-primary" />
-            <span>AI Mentor</span>
-          </button>
+          <div className="hidden md:flex items-center gap-3">
+            <button
+              onClick={toggleAIPanel}
+              data-testid={APP_SHELL.aiPanelToggle}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-primary/30 bg-primary/10 hover:bg-primary/15 text-sm font-medium transition-colors"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              <span>AI Mentor</span>
+            </button>
+            {streak != null && (
+              <div className="inline-flex items-center gap-1 px-2 py-1 rounded text-sm font-medium text-muted-foreground">
+                <Flame className="h-4 w-4 text-amber-400" />
+                <span className="font-display text-sm">{streak}</span>
+              </div>
+            )}
+          </div>
 
           <button
             onClick={() => navigate('/app/notifications')}

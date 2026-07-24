@@ -9,6 +9,7 @@ def build_learning_recommendation(
     *,
     progress: Optional[dict] = None,
     support_recommendation: Optional[dict] = None,
+    core_recommendation: Optional[dict] = None,
 ) -> dict:
     """Convert a roadmap node into a structured learning recommendation."""
     progress = progress or {}
@@ -35,7 +36,11 @@ def build_learning_recommendation(
         "recommendation_type": "learning",
     }
     if support_recommendation:
-        for key in ("support_track", "support_topic", "support_node"):
-            if support_recommendation.get(key) is not None:
-                recommendation[key] = support_recommendation[key]
+        for key, value in support_recommendation.items():
+            if value is not None:
+                recommendation[key] = value
+    if core_recommendation:
+        for key, value in core_recommendation.items():
+            if value is not None:
+                recommendation[key] = value
     return recommendation

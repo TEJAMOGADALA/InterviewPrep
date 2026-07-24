@@ -532,6 +532,7 @@ async def build_context(db, *, user_id: str, node_id: Optional[str] = None) -> D
     profile = await _load_user_profile(db, user_id)
     progress = await _load_progress(db, user_id)
     focus = _weak_and_strong(progress, roadmap)
+    prerequisite_analysis = await _load_prerequisite_analysis(db,user_id,roadmap,node_id,focus["weak"],)
     mission = await _load_todays_mission(db, user_id)
     revisions = await _load_revision_queue(db, user_id, roadmap)
     activity = await _load_recent_activity(db, user_id)
@@ -545,6 +546,7 @@ async def build_context(db, *, user_id: str, node_id: Optional[str] = None) -> D
         "profile": profile,
         "summary": summary,
         "focus": focus,
+        "prerequisite_analysis": prerequisite_analysis,
         "todays_mission": mission,
         "revision_queue": revisions,
         "recent_activity": activity,

@@ -80,6 +80,39 @@ def _pattern_from_subtopic(sub: str) -> Optional[str]:
     return SUBTOPIC_TO_PATTERN.get(sub)
 
 
+def _roadmap_study_task(node: dict, action: str = "Study") -> MissionTask:
+    return MissionTask(
+        title=f"{action}: {node.get('label') or node.get('id')}",
+        kind="study",
+        topic=node.get("track", "dsa"),
+        node_id=node.get("id"),
+    )
+
+
+def _find_roadmap_node_by_id(node_id: Optional[str]) -> Optional[dict]:
+    if not node_id:
+        return None
+    return get_roadmap().get(node_id)
+
+
+def _select_unlocked_roadmap_node(track: str, knowledge_nodes: Optional[dict]) -> Optional[dict]:
+    completed = {
+        row.get("node_id")
+        for row in (knowledge_nodes or {}).values()
+        if row.get("node_id")
+    }
+    unlocked = get_roadmap().get_unlocked_nodes(completed)
+    for node in unlocked:
+        if node.get("track") == track and node.get("id") not in completed:
+            return node
+    return None
+
+
+# --------------------- Legacy topic selection helpers (deprecated) -----
+# These functions remain only for backward compatibility and tests.
+# Production mission generation should use the Learning Engine recommendation
+# pipeline as the canonical source of today's topic selection.
+
 def choose_focus_topic(
     onboarding: dict, knowledge: List[dict], target_companies: List[str], rng: random.Random,
 ) -> str:
@@ -215,10 +248,12 @@ def select_primary_topic(
     rng: random.Random,
     knowledge_nodes: Optional[Dict[str, dict]] = None,
 ) -> Tuple[str, str, str]:
-    """Select the primary mission track, topic label, and base difficulty.
+    """Deprecated compatibility fallback.
 
-    The branch order and random draws intentionally match the original mission
-    builder so this extraction is behavior-preserving.
+    Select the primary mission track, topic label, and base difficulty.
+
+    This function is retained for legacy callers and should not be used by
+    production mission generation once the Learning Engine is fully canonical.
     """
     if mode == "revise" and analysis["weak_patterns"]:
         weak_pattern = sorted(analysis["weak_patterns"])[0]
@@ -254,7 +289,13 @@ def build_mission_for_user(
     knowledge_nodes: Optional[Dict[str, dict]] = None,
     learning_recommendation: Optional[dict] = None,
 ) -> tuple[DailyMission, dict]:
-    """Return (mission, adjustment_meta). adjustment_meta describes adaptive decisions."""
+    """Return (mission, adjustment_meta). adjustment_meta describes adaptive decisions.
+
+    The primary mission topic is supplied via the canonical Learning Engine
+    recommendation DTO. This function composes the mission document and tasks,
+    but does not independently choose today's roadmap topic when a recommendation
+    is provided.
+    """
     ds = ds or today_date_str()
     rng = _seeded_random(user_id, ds)
 
@@ -274,10 +315,16 @@ def build_mission_for_user(
         focus_topic = learning_recommendation.get("track") or "dsa"
         subtopic = learning_recommendation.get("label") or learning_recommendation.get("subtopic") or ""
         base_difficulty = learning_recommendation.get("difficulty") or "medium"
+        primary_node_id = learning_recommendation.get("node_id")
     else:
+        # Legacy compatibility fallback only: if the Learning Engine has not yet
+        # provided a canonical recommendation, preserve existing behavior here.
+        # This path should not be used by production mission generation once the
+        # Learning Recommendation pipeline is fully canonicalized.
         focus_topic, subtopic, base_difficulty = select_primary_topic(
             onboarding, knowledge, target_companies, analysis, mode, rng, knowledge_nodes,
         )
+        primary_node_id = None
 
     meta = TOPIC_META[focus_topic]
 
@@ -328,58 +375,73 @@ def build_mission_for_user(
             topic=focus_topic,
             pattern=pattern,
             problem_count=practice_count,
+            node_id=primary_node_id,
         ))
     elif focus_topic in ("java", "lld", "hld"):
         tasks.append(MissionTask(
             title=f"Work through: {subtopic}",
             kind="practice",
             topic=focus_topic,
+            node_id=primary_node_id,
         ))
     else:
         tasks.append(MissionTask(
             title=f"Deep-dive: {subtopic}",
             kind="study",
             topic=focus_topic,
+            node_id=primary_node_id,
         ))
 
     # Supporting study task
+    support_node = None
     support_topic = None
+    support_meta = None
     if learning_recommendation is not None:
-        support_track = learning_recommendation.get("support_track")
-        if support_track in TOPIC_KEYS:
-            support_topic = support_track
-        else:
+        support_node = _find_roadmap_node_by_id(learning_recommendation.get("support_node"))
+        support_topic = learning_recommendation.get("support_track")
+        if support_topic not in TOPIC_KEYS:
             support_topic = learning_recommendation.get("support_topic")
-            if support_topic in TOPIC_KEYS:
-                support_topic = support_topic
-            else:
-                support_node = learning_recommendation.get("support_node")
-                if support_node in TOPIC_KEYS:
-                    support_topic = support_node
-                else:
-                    support_topic = None
+            if support_topic not in TOPIC_KEYS:
+                support_topic = None
 
-    if support_topic is None:
+    if support_topic in TOPIC_KEYS:
+        support_meta = TOPIC_META[support_topic]
+
+    if support_node is None and support_topic is not None:
+        support_node = _select_unlocked_roadmap_node(support_topic, knowledge_nodes)
+
+    if support_node is not None:
+        tasks.append(_roadmap_study_task(support_node, action="Study"))
+    elif support_topic is None or support_meta is None:
+        # Compatibility safeguard: only use legacy topic meta when the support
+        # recommendation payload is invalid or the track is unknown.
         support_pool = [t for t in TOPIC_KEYS if t != focus_topic]
         support_topic = rng.choice(support_pool)
-
-    support_meta = TOPIC_META[support_topic]
-    support_sub, _ = rng.choice(support_meta["subtopics"])
-    tasks.append(MissionTask(
-        title=f"Study {support_meta['label']} · {support_sub}",
-        kind="study",
-        topic=support_topic,
-    ))
+        support_meta = TOPIC_META[support_topic]
+        support_sub, _ = rng.choice(support_meta["subtopics"])
+        tasks.append(MissionTask(
+            title=f"Study {support_meta['label']} · {support_sub}",
+            kind="study",
+            topic=support_topic,
+        ))
+    else:
+        # Valid roadmap-backed support track exists but no unlocked roadmap node is
+        # currently available. Do not fall back to legacy TOPIC_META in normal flow.
+        pass
 
     if daily_hours >= 3:
-        core_topic = rng.choice(["operating_systems", "dbms", "computer_networks"])
-        core_meta = TOPIC_META[core_topic]
-        core_sub, _ = rng.choice(core_meta["subtopics"])
-        tasks.append(MissionTask(
-            title=f"Read: {core_meta['label']} · {core_sub}",
-            kind="study",
-            topic=core_topic,
-        ))
+        core_node = _find_roadmap_node_by_id(learning_recommendation.get("core_node") if learning_recommendation else None)
+        if core_node is None:
+            for core_track in ("operating_systems", "dbms", "computer_networks"):
+                core_node = _select_unlocked_roadmap_node(core_track, knowledge_nodes)
+                if core_node is not None:
+                    break
+        if core_node is not None:
+            tasks.append(_roadmap_study_task(core_node, action="Read"))
+        else:
+            # No eligible unlocked roadmap node exists for core tracks. Do not
+            # revert to legacy TOPIC_META when roadmap-backed core selection fails.
+            pass
 
     # Revision tasks (from spaced-repetition queue)
     revision_task_ids: List[str] = []
@@ -388,6 +450,7 @@ def build_mission_for_user(
             title=f"Revise: {rev['task_title']}",
             kind="revise",
             topic=rev["topic"],
+            node_id=rev.get("node_id"),
         )
         tasks.append(rt)
         revision_task_ids.append(rt.id)
