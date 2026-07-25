@@ -128,20 +128,24 @@ async def _load_todays_mission(db, user_id: str) -> Optional[Dict[str, Any]]:
 
 
 async def _load_revision_queue(db, user_id: str, roadmap) -> List[Dict[str, Any]]:
-    """Top-N nodes whose next_revision is in the past."""
-    now = datetime.now(timezone.utc).isoformat()
-    cur = db.knowledge_nodes.find(
-        {"user_id": user_id, "next_revision": {"$lte": now, "$ne": None}},
-        {"_id": 0, "node_id": 1, "next_revision": 1, "confidence": 1},
-    ).sort("next_revision", 1).limit(_TOP_N)
-    rows = await cur.to_list(length=_TOP_N)
+    """Top-N nodes whose next_revision is due — delegates to the canonical
+    Revision Engine (services/revision_engine.py) so AI Mentor never
+    duplicates the "what's due" query that Mission Engine and the Knowledge
+    Base already use.
+    """
+    from services.revision_engine import get_revisions_for_user
+
+    version = getattr(roadmap, "version", None) or CURRENT_VERSION
+    due = await get_revisions_for_user(
+        db, user_id, version, roadmap=roadmap, limit=_TOP_N, due_only=True,
+    )
     out = []
-    for r in rows:
-        n = roadmap.get(r["node_id"])
+    for r in due:
+        node = roadmap.get(r["node_id"])
         out.append({
             "node_id": r["node_id"],
-            "label": n["label"] if n else r["node_id"],
-            "due": r.get("next_revision"),
+            "label": r["task_title"] if r["task_title"] else (node["label"] if node else r["node_id"]),
+            "due": r["next_review_date"],
             "confidence": r.get("confidence"),
         })
     return out

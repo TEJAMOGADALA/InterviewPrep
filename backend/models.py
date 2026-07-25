@@ -277,6 +277,7 @@ class KnowledgeNode(BaseModel):
     mastery_percentage: float = 0.0  # 0-100
     last_revision: Optional[str] = None
     next_revision: Optional[str] = None
+    revision_stage: int = 0  # 0..5 spaced-repetition stage (see services/revision_engine.py)
     completion_date: Optional[str] = None
     attempts: int = 0
     actual_solve_minutes: int = 0

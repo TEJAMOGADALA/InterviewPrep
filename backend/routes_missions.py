@@ -8,18 +8,23 @@ logger = logging.getLogger(__name__)
 
 from auth_utils import get_current_user
 from models import (
-    DailyMission, MissionTask, KnowledgeProgress, StudyStreak,
-    RevisionItem, ActivityEvent, TOPIC_KEYS, OnboardingPatch, OnboardingRecord,
+    DailyMission, MissionTask, StudyStreak,
+    ActivityEvent, TOPIC_KEYS, OnboardingPatch, OnboardingRecord,
     ProblemAssignment, ProblemFeedbackPayload, ProblemFeedback, MissionAdjustment,
     WeaknessRecord,
 )
 from mission_engine import (
-    build_mission_for_user, today_date_str, schedule_next_revision,
-    first_revision_date, compute_readiness, compute_company_readiness,
-    update_streak_on_completion, streak_days_grid, apply_knowledge_gain,
-    apply_feedback_gain, TOPIC_META, COMPANY_READINESS_WEIGHTS,
+    build_mission_for_user, today_date_str,
+    compute_readiness, compute_company_readiness,
+    apply_knowledge_gain, TOPIC_META, COMPANY_READINESS_WEIGHTS,
     determine_mode, analyze_recent_feedback,
 )
+from services.streak_engine import update_streak_on_completion, streak_days_grid
+from services.progress_engine import (
+    build_canonical_progress, load_user_progress_rows, score_to_node_fields,
+)
+from services.revision_engine import get_revisions_for_user, mark_node_for_revision
+from roadmap import get_roadmap, CURRENT_VERSION
 from problem_bank import (
     PROBLEMS, PATTERN_TO_DOMAIN, pattern_counts, problems_by_pattern,
     problem_by_id,
@@ -85,17 +90,35 @@ async def _require_onboarding(db, user_id: str) -> dict:
 
 
 async def _get_knowledge(db, user_id: str) -> list:
-    cur = db.knowledge_progress.find({"user_id": user_id}, {"_id": 0})
-    return await cur.to_list(length=100)
+    """Per-track scores derived from the canonical Progress Engine.
+
+    Replaces the legacy per-track `knowledge_progress` collection as the read
+    path — see services/progress_engine.py. Keeps the same List[dict] shape
+    (topic/score/completions) so every existing caller (readiness formulas,
+    dashboard knowledge_view, legacy topic selection) needs no changes.
+    Topics with no progress yet are omitted so callers fall back to the
+    onboarding self-assessment baseline, exactly like the legacy collection
+    (which simply had no row for untouched topics).
+    """
+    roadmap = get_roadmap()
+    progress_rows = await load_user_progress_rows(db, user_id)
+    canonical = build_canonical_progress(roadmap, progress_rows)
+    result = []
+    for t in TOPIC_KEYS:
+        roll = canonical.get(t) or {}
+        if roll.get("status", "not_started") == "not_started":
+            continue
+        result.append({
+            "topic": t,
+            "score": roll.get("mastery_percentage", 0.0),
+            "completions": roll.get("completed_topics", 0),
+        })
+    return result
 
 
 async def _get_due_revisions(db, user_id: str) -> list:
-    today = today_date_str()
-    cur = db.revisions.find(
-        {"user_id": user_id, "completed": False, "next_review_date": {"$lte": today}},
-        {"_id": 0},
-    ).sort("next_review_date", 1)
-    return await cur.to_list(length=20)
+    """Delegates to the canonical Revision Engine (services/revision_engine.py)."""
+    return await get_revisions_for_user(db, user_id, CURRENT_VERSION, limit=20, due_only=True)
 
 
 async def _get_recent_feedback(db, user_id: str, hours: int = 48) -> list:
@@ -249,42 +272,37 @@ async def toggle_task(mission_id: str, task_id: str, user=Depends(get_current_us
         )
         await _log_activity(db, user["id"], "task_uncompleted", f"Uncompleted: {task['title']}")
     else:
-        # CHECK — mark complete + knowledge gain + spaced repetition
+        # CHECK — mark complete + knowledge gain + spaced repetition.
+        # Both are written directly onto the canonical `knowledge_nodes` row
+        # (services/progress_engine.py / services/revision_engine.py) keyed
+        # by the task's track id — there is no longer a parallel
+        # knowledge_progress / revisions write for this event.
         task["completed"] = True
         task["completed_at"] = _now_iso()
 
+        node_id = task["topic"]
         onboarding = await _get_onboarding(db, user["id"])
         baseline_score = (onboarding or {}).get("self_assessment", {}).get(task["topic"], 5) * 10
-        kp = await db.knowledge_progress.find_one({"user_id": user["id"], "topic": task["topic"]})
-        current = float(kp["score"]) if kp else float(baseline_score)
+        existing_node = await db.knowledge_nodes.find_one(
+            {"user_id": user["id"], "roadmap_version": CURRENT_VERSION, "node_id": node_id}, {"_id": 0},
+        )
+        current = float(existing_node["mastery_percentage"]) if existing_node else float(baseline_score)
         new_score = apply_knowledge_gain(current, doc["difficulty"], task["kind"])
-        await db.knowledge_progress.update_one(
-            {"user_id": user["id"], "topic": task["topic"]},
+        fields = score_to_node_fields(new_score)
+        await db.knowledge_nodes.update_one(
+            {"user_id": user["id"], "roadmap_version": CURRENT_VERSION, "node_id": node_id},
             {"$set": {
-                "user_id": user["id"], "topic": task["topic"],
-                "score": new_score,
-                "completions": (kp.get("completions", 0) if kp else 0) + 1,
-                "last_updated": _now_iso(),
+                **fields,
+                "user_id": user["id"], "roadmap_version": CURRENT_VERSION, "node_id": node_id,
+                "updated_at": _now_iso(),
             }},
             upsert=True,
         )
 
-        if task["kind"] != "revise":
-            rev = RevisionItem(
-                user_id=user["id"], task_title=task["title"], topic=task["topic"],
-                stage=0, next_review_date=first_revision_date(),
-            )
-            await db.revisions.insert_one(rev.model_dump())
-        else:
-            existing = await db.revisions.find_one({
-                "user_id": user["id"], "topic": task["topic"], "completed": False,
-            })
-            if existing:
-                next_stage, next_date = schedule_next_revision(existing.get("stage", 0))
-                await db.revisions.update_one(
-                    {"id": existing["id"]},
-                    {"$set": {"stage": next_stage, "next_review_date": next_date}},
-                )
+        # Advance (or start) this node's spaced-repetition schedule. The
+        # canonical engine decides internally whether this is a first-time
+        # schedule or an advance from the existing stage.
+        await mark_node_for_revision(db, user["id"], CURRENT_VERSION, node_id)
 
         await db.daily_missions.update_one(
             {"id": mission_id}, {"$set": {"tasks": doc["tasks"]}},
@@ -319,16 +337,21 @@ async def complete_mission(mission_id: str, user=Depends(get_current_user)):
         if not t["completed"]:
             t["completed"] = True
             t["completed_at"] = now
-            kp = await db.knowledge_progress.find_one({"user_id": user["id"], "topic": t["topic"]})
+            node_id = t["topic"]
+            existing_node = await db.knowledge_nodes.find_one(
+                {"user_id": user["id"], "roadmap_version": CURRENT_VERSION, "node_id": node_id}, {"_id": 0},
+            )
             baseline_score = baseline.get(t["topic"], 5) * 10
-            current = float(kp["score"]) if kp else float(baseline_score)
+            current = float(existing_node["mastery_percentage"]) if existing_node else float(baseline_score)
             new_score = apply_knowledge_gain(current, doc["difficulty"], t["kind"])
-            await db.knowledge_progress.update_one(
-                {"user_id": user["id"], "topic": t["topic"]},
-                {"$set": {"user_id": user["id"], "topic": t["topic"],
-                          "score": new_score,
-                          "completions": (kp.get("completions", 0) if kp else 0) + 1,
-                          "last_updated": now}},
+            fields = score_to_node_fields(new_score)
+            await db.knowledge_nodes.update_one(
+                {"user_id": user["id"], "roadmap_version": CURRENT_VERSION, "node_id": node_id},
+                {"$set": {
+                    **fields,
+                    "user_id": user["id"], "roadmap_version": CURRENT_VERSION, "node_id": node_id,
+                    "updated_at": now,
+                }},
                 upsert=True,
             )
 
@@ -380,12 +403,7 @@ async def get_mission_history(limit: int = 20, user=Depends(get_current_user)):
 @router.get("/revisions/queue")
 async def get_revision_queue(user=Depends(get_current_user)):
     from server import db
-    today = today_date_str()
-    cur = db.revisions.find({"user_id": user["id"], "completed": False}, {"_id": 0}).sort("next_review_date", 1).limit(20)
-    items = await cur.to_list(length=20)
-    for it in items:
-        it["is_due"] = it["next_review_date"] <= today
-    return items
+    return await get_revisions_for_user(db, user["id"], CURRENT_VERSION, limit=20, due_only=False)
 
 
 @router.get("/activity")
@@ -562,24 +580,12 @@ async def submit_problem_feedback(
         {"$set": {"status": new_status, "completed_at": _now_iso(), "notes": payload.notes}},
     )
 
-    # Update knowledge progress based on feedback
+    # Update knowledge progress based on feedback — writes only to the
+    # canonical `knowledge_nodes` collection (no parallel knowledge_progress
+    # write; see services/progress_engine.py).
     p = problem_by_id(a["problem_id"])
+    domain, _ = PATTERN_TO_DOMAIN.get(a["pattern"], ("dsa", ""))
     if p:
-        domain, _ = PATTERN_TO_DOMAIN.get(p["pattern"], ("dsa", ""))
-        onboarding = await _get_onboarding(db, user["id"])
-        baseline_score = (onboarding or {}).get("self_assessment", {}).get(domain, 5) * 10
-        kp = await db.knowledge_progress.find_one({"user_id": user["id"], "topic": domain})
-        current = float(kp["score"]) if kp else float(baseline_score)
-        new_score = apply_feedback_gain(current, payload.confidence, payload.solved_status)
-        await db.knowledge_progress.update_one(
-            {"user_id": user["id"], "topic": domain},
-            {"$set": {"user_id": user["id"], "topic": domain,
-                      "score": new_score,
-                      "completions": (kp.get("completions", 0) if kp else 0) + 1,
-                      "last_updated": _now_iso()}},
-            upsert=True,
-        )
-
         # Sync to Roadmap KnowledgeNode (pattern node + track node)
         try:
             from roadmap import get_roadmap as _get_rm, CURRENT_VERSION as _V
@@ -614,15 +620,9 @@ async def submit_problem_feedback(
         except Exception:
             pass  # Roadmap sync is best-effort
 
-    # Schedule revision from confidence
-    rev = RevisionItem(
-        user_id=user["id"],
-        task_title=(p or {}).get("title", "Problem"),
-        topic=PATTERN_TO_DOMAIN.get(a["pattern"], ("dsa", ""))[0],
-        stage=0,
-        next_review_date=first_revision_date(confidence=payload.confidence),
-    )
-    await db.revisions.insert_one(rev.model_dump())
+    # Schedule revision from confidence — canonical Revision Engine, keyed by
+    # the track node (same granularity toggle_task uses).
+    await mark_node_for_revision(db, user["id"], CURRENT_VERSION, domain, confidence=payload.confidence)
 
     # Weakness detection
     if payload.confidence <= 4 or payload.solved_status in ("multi_hints", "could_not_solve"):
@@ -659,9 +659,8 @@ async def get_knowledge_tree(user=Depends(get_current_user)):
     for f in all_fb:
         fb_by_pattern.setdefault(f["pattern"], []).append(f)
 
-    # Revisions by topic
-    rev_cur = db.revisions.find({"user_id": user["id"], "completed": False}, {"_id": 0})
-    revs = await rev_cur.to_list(length=200)
+    # Revisions by topic — canonical Revision Engine (services/revision_engine.py)
+    revs = await get_revisions_for_user(db, user["id"], CURRENT_VERSION, limit=200, due_only=False)
     rev_by_topic = {}
     for r in revs:
         rev_by_topic.setdefault(r["topic"], []).append(r)
@@ -774,10 +773,7 @@ async def get_dashboard(user=Depends(get_current_user)):
     readiness = compute_readiness(knowledge, onboarding)
     streak_grid = streak_days_grid(streak)
 
-    cur = db.revisions.find({"user_id": user["id"], "completed": False}, {"_id": 0}).sort("next_review_date", 1).limit(6)
-    revisions = await cur.to_list(length=6)
-    for r in revisions:
-        r["is_due"] = r["next_review_date"] <= today
+    revisions = await get_revisions_for_user(db, user["id"], CURRENT_VERSION, limit=6, due_only=False)
 
     baseline = onboarding.get("self_assessment", {})
     progress_by_topic = {kp["topic"]: kp for kp in knowledge}

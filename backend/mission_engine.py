@@ -517,36 +517,11 @@ def _mode_reason(mode: str, analysis: dict, extra: int) -> str:
 
 
 # --------------------- Spaced repetition ---------------------
-
-REVISION_STAGES_DAYS = [1, 3, 7, 14, 30, 60]
-
-
-def confidence_modifier_days(confidence: int) -> float:
-    """Adjust default interval based on confidence 1-10."""
-    if confidence <= 3:
-        return 0.4  # revise much sooner
-    if confidence <= 5:
-        return 0.7
-    if confidence >= 9:
-        return 1.5  # can wait longer
-    if confidence >= 7:
-        return 1.2
-    return 1.0
-
-
-def schedule_next_revision(current_stage: int, confidence: int = 6) -> tuple[int, str]:
-    """Return (next_stage, next_date_str)."""
-    next_stage = min(current_stage + 1, len(REVISION_STAGES_DAYS) - 1)
-    days = REVISION_STAGES_DAYS[next_stage] * confidence_modifier_days(confidence)
-    days = max(1, round(days))
-    d = (datetime.now(timezone.utc) + timedelta(days=days)).date().isoformat()
-    return next_stage, d
-
-
-def first_revision_date(confidence: int = 6) -> str:
-    days = REVISION_STAGES_DAYS[0] * confidence_modifier_days(confidence)
-    days = max(1, round(days))
-    return (datetime.now(timezone.utc) + timedelta(days=days)).date().isoformat()
+#
+# Canonical spaced-repetition math (schedule_next_revision, first_revision_date,
+# REVISION_STAGES_DAYS) now lives in services/revision_engine.py — the single
+# Revision Engine consumed by Mission Engine, the Knowledge Base, and AI
+# Mentor. See that module for implementation.
 
 
 # --------------------- Interview readiness ---------------------

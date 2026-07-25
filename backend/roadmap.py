@@ -20,27 +20,53 @@ class RoadmapNode(dict):
     """Lightweight dict subclass for readability. Never mutate."""
 
 
+def _infer_child_type(key: str) -> str:
+    """Translate a container key into a node type for the roadmap tree."""
+    if key in {"modules", "module"}:
+        return "module"
+    if key in {"topics", "topic"}:
+        return "topic"
+    if key in {"subtopics", "subtopic"}:
+        return "subtopic"
+    if key in {"learning_nodes", "learning_node", "node", "nodes"}:
+        return "node"
+    if key in {"sections", "section"}:
+        return "section"
+    if key in {"categories", "category"}:
+        return "category"
+    if key.endswith("ies") and len(key) > 4:
+        return key[:-3] + "y"
+    if key.endswith("s") and len(key) > 1:
+        return key[:-1]
+    return key
+
+
 def _flatten(node: dict, parent_id: Optional[str], depth: int,
-             out: Dict[str, dict], type_hint: str) -> None:
+             out: Dict[str, dict], type_hint: str, track_id: Optional[str] = None) -> None:
     """Walk the roadmap JSON, tagging each node with parent/depth/type/children."""
     node["type"] = type_hint
     node["parent_id"] = parent_id
     node["depth"] = depth
     node["child_ids"] = []
+    if track_id:
+        node["track"] = track_id
 
-    # Recurse into modules / topics / subtopics / learning_nodes
-    for key, child_type in (
-        ("modules", "module"),
-        ("topics", "topic"),
-        ("subtopics", "subtopic"),
-        ("learning_nodes", "node"),
-    ):
-        children = node.get(key)
-        if not children:
+    if type_hint == "node":
+        out[node["id"]] = node
+        return
+
+    for key, value in node.items():
+        if not isinstance(value, list):
             continue
-        for c in children:
-            node["child_ids"].append(c["id"])
-            _flatten(c, parent_id=node["id"], depth=depth + 1, out=out, type_hint=child_type)
+        if not value or not all(isinstance(item, dict) for item in value):
+            continue
+        child_type = _infer_child_type(key)
+        for child in value:
+            child_id = child.get("id")
+            if not child_id:
+                continue
+            node["child_ids"].append(child_id)
+            _flatten(child, parent_id=node["id"], depth=depth + 1, out=out, type_hint=child_type, track_id=track_id or node.get("id"))
 
     out[node["id"]] = node
 
@@ -52,7 +78,8 @@ class RoadmapEngine:
         self._index: Dict[str, dict] = {}
         self._by_pattern: Dict[str, List[dict]] = {}
         for track in self._raw["tracks"]:
-            _flatten(track, parent_id=None, depth=0, out=self._index, type_hint="track")
+            track_id = track.get("id")
+            _flatten(track, parent_id=None, depth=0, out=self._index, type_hint="track", track_id=track_id)
         for node in self._index.values():
             pat = node.get("pattern")
             if pat:

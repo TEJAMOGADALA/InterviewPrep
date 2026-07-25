@@ -12,6 +12,8 @@ from roadmap import get_roadmap, CURRENT_VERSION
 from problem_bank import problem_by_id
 from ai_service import AIProviderError
 from knowledge_generation import ensure_content, read_cache, clear_cache
+from services.progress_engine import build_canonical_progress, load_user_progress_rows
+from mission_engine import compute_readiness
 
 router = APIRouter(prefix="/api/roadmap", tags=["roadmap"])
 
@@ -74,10 +76,12 @@ def _bucket(confidence: float, weakness_score: float) -> str:
 
 
 async def _load_user_progress(db, user_id: str) -> dict:
-    """Return dict node_id → KnowledgeNode doc."""
-    cur = db.knowledge_nodes.find({"user_id": user_id}, {"_id": 0})
-    docs = await cur.to_list(length=500)
-    return {d["node_id"]: d for d in docs}
+    """Return dict node_id → KnowledgeNode doc.
+
+    Delegates to the canonical Progress Engine loader (services/progress_engine.py)
+    so every route module queries `knowledge_nodes` the same way.
+    """
+    return await load_user_progress_rows(db, user_id)
 
 
 def _is_leaf_node(node: dict) -> bool:
@@ -87,17 +91,20 @@ def _is_leaf_node(node: dict) -> bool:
 
 def _rollup_from_progress(node: dict, progress: dict, roadmap) -> dict:
     """Compute status + mastery + counts for a node from itself or its descendants."""
-    prog = progress.get(node["id"])
+    is_leaf = _is_leaf_node(node)
+    # Legacy migrations can insert a knowledge_nodes row keyed by a track/module
+    # id (e.g. node_id == "dsa") from pre-roadmap per-track progress. Such a row
+    # must never be treated as leaf-level progress for a non-leaf node — doing so
+    # short-circuits the structural rollup and incorrectly zeroes total_topics.
+    prog = progress.get(node["id"]) if is_leaf else None
     if prog:
         status = _normalize_status(prog.get("status"), prog.get("next_revision"))
         mastery = float(prog.get("mastery_percentage", 0.0))
         est_min = int(node.get("estimated_minutes") or 0)
         is_done = status in (STATUS_COMPLETED, STATUS_MASTERED)
-        # Only count leaves toward "topic counts" — parent nodes aggregate.
-        is_leaf = _is_leaf_node(node)
-        completed_topics = 1 if (is_leaf and is_done) else 0
-        total_topics = 1 if is_leaf else 0
-        remaining_minutes = 0 if is_done else (est_min if is_leaf else 0)
+        completed_topics = 1 if is_done else 0
+        total_topics = 1
+        remaining_minutes = 0 if is_done else est_min
         return {
             "status": status,
             "confidence": round(prog.get("confidence", 0.0), 2),
@@ -115,83 +122,49 @@ def _rollup_from_progress(node: dict, progress: dict, roadmap) -> dict:
             "total_topics": total_topics,
             "completed_topics": completed_topics,
             "remaining_topics": total_topics - completed_topics,
-            "completion_pct": 100.0 if (is_leaf and is_done) else 0.0,
+            "completion_pct": 100.0 if is_done else 0.0,
             "estimated_hours_remaining": round(remaining_minutes / 60.0, 2),
         }
-    # No direct record — descend into children.
-    kids = node.get("child_ids", []) or []
-    if not kids:
-        # A leaf with no progress row.
-        est_min = int(node.get("estimated_minutes") or 0)
+
+    # The canonical engine is the authoritative rollup path; use it for parent nodes.
+    if node.get("id") != "root":
+        canonical = build_canonical_progress(roadmap, progress)
         return {
-            "status": STATUS_NOT_STARTED, "confidence": 0.0, "weakness_score": 0.0,
-            "mastery_percentage": 0.0, "revision_bucket": "green",
-            "has_progress": False, "bookmarked": False, "favorite": False,
-            "attempts": 0, "actual_solve_minutes": 0,
-            "completion_date": None, "last_revision": None, "next_revision": None,
-            "total_topics": 1, "completed_topics": 0, "remaining_topics": 1,
-            "completion_pct": 0.0,
-            "estimated_hours_remaining": round(est_min / 60.0, 2),
+            **canonical.get(node["id"], {}),
+            "revision_bucket": _bucket(
+                canonical.get(node["id"], {}).get("confidence", 0.0),
+                canonical.get(node["id"], {}).get("weakness_score", 0.0),
+            ),
+            "has_progress": bool(progress.get(node["id"])),
+            "bookmarked": bool(progress.get(node["id"], {}).get("bookmarked", False)),
+            "favorite": bool(progress.get(node["id"], {}).get("favorite", False)),
+            "attempts": int(progress.get(node["id"], {}).get("attempts", 0)),
+            "actual_solve_minutes": int(progress.get(node["id"], {}).get("actual_solve_minutes", 0)),
+            "completion_date": progress.get(node["id"], {}).get("completion_date"),
+            "last_revision": progress.get(node["id"], {}).get("last_revision"),
+            "next_revision": progress.get(node["id"], {}).get("next_revision"),
         }
-    parts = []
-    for cid in kids:
-        c = roadmap.get(cid)
-        if not c:
-            continue
-        parts.append(_rollup_from_progress(c, progress, roadmap))
-    if not parts:
-        return {
-            "status": STATUS_NOT_STARTED, "confidence": 0.0, "weakness_score": 0.0,
-            "mastery_percentage": 0.0, "revision_bucket": "green",
-            "has_progress": False, "bookmarked": False, "favorite": False,
-            "attempts": 0, "actual_solve_minutes": 0,
-            "completion_date": None, "last_revision": None, "next_revision": None,
-            "total_topics": 0, "completed_topics": 0, "remaining_topics": 0,
-            "completion_pct": 0.0, "estimated_hours_remaining": 0.0,
-        }
-    n = len(parts)
-    avg_conf = sum(p["confidence"] for p in parts) / n
-    avg_mastery = sum(p["mastery_percentage"] for p in parts) / n
-    avg_weak = sum(p["weakness_score"] for p in parts) / n
-    total_topics = sum(p.get("total_topics", 0) for p in parts)
-    completed_topics = sum(p.get("completed_topics", 0) for p in parts)
-    hours_remaining = round(sum(p.get("estimated_hours_remaining", 0.0) for p in parts), 2)
-    completion_pct = round((completed_topics / total_topics) * 100.0, 2) if total_topics else 0.0
-    any_progress = any(p["has_progress"] for p in parts)
-    any_bookmarked = any(p.get("bookmarked") for p in parts)
-    any_favorite = any(p.get("favorite") for p in parts)
-    any_revision_due = any(p.get("status") == STATUS_REVISION_DUE for p in parts)
-    all_completed = any_progress and all(
-        p.get("status") in (STATUS_COMPLETED, STATUS_MASTERED)
-        for p in parts if p.get("has_progress")
-    )
-    if any_revision_due:
-        status = STATUS_REVISION_DUE
-    elif all_completed:
-        status = STATUS_MASTERED if avg_conf >= 8 else STATUS_COMPLETED
-    elif any_progress:
-        status = STATUS_IN_PROGRESS
-    else:
-        status = STATUS_NOT_STARTED
+
+    # Fallback for synthetic root node.
     return {
-        "status": status,
-        "confidence": round(avg_conf, 2),
-        "weakness_score": round(avg_weak, 2),
-        "mastery_percentage": round(avg_mastery, 2),
-        "revision_bucket": _bucket(avg_conf, avg_weak),
-        "has_progress": any_progress,
-        "bookmarked": any_bookmarked,
-        "favorite": any_favorite,
-        "attempts": sum(p.get("attempts", 0) for p in parts),
-        "actual_solve_minutes": sum(p.get("actual_solve_minutes", 0) for p in parts),
+        "status": STATUS_NOT_STARTED,
+        "confidence": 0.0,
+        "weakness_score": 0.0,
+        "mastery_percentage": 0.0,
+        "revision_bucket": "green",
+        "has_progress": False,
+        "bookmarked": False,
+        "favorite": False,
+        "attempts": 0,
+        "actual_solve_minutes": 0,
         "completion_date": None,
         "last_revision": None,
         "next_revision": None,
-        "total_topics": total_topics,
-        "completed_topics": completed_topics,
-        "remaining_topics": total_topics - completed_topics,
-        "completion_pct": completion_pct,
-        "estimated_hours_remaining": hours_remaining,
+        "total_topics": 0,
+        "completed_topics": 0,
+        "remaining_topics": 0,
+        "completion_pct": 0.0,
+        "estimated_hours_remaining": 0.0,
     }
 
 
@@ -340,7 +313,7 @@ async def get_progress(user=Depends(get_current_user)):
     version = await _ensure_user_version(db, user["id"])
     roadmap = get_roadmap(version)
     progress_map = await _load_user_progress(db, user["id"])
-    # Roll up per track and per module (progress now includes topic counts + hours).
+    # Roll up per track and per module using the canonical backend engine.
     result = []
     for track in roadmap.tracks():
         modules = []
@@ -378,12 +351,9 @@ async def get_summary(user=Depends(get_current_user)):
     total_topics = 0
     total_completed = 0
     total_hours_remaining = 0.0
-    weighted_readiness_num = 0.0
-    weighted_readiness_den = 0.0
 
     for track in roadmap.tracks():
         roll = _rollup_from_progress(track, progress_map, roadmap)
-        weight = float(track.get("mastery_weight") or track.get("interview_importance") or 3)
         tracks_summary.append({
             "id": track["id"], "label": track["label"], "icon": track.get("icon"),
             "completion_pct": roll["completion_pct"],
@@ -398,11 +368,19 @@ async def get_summary(user=Depends(get_current_user)):
         total_topics += roll["total_topics"]
         total_completed += roll["completed_topics"]
         total_hours_remaining += roll["estimated_hours_remaining"]
-        weighted_readiness_num += roll["mastery_percentage"] * weight
-        weighted_readiness_den += weight
 
     overall_completion = round((total_completed / total_topics) * 100.0, 2) if total_topics else 0.0
-    overall_readiness = round(weighted_readiness_num / weighted_readiness_den, 2) if weighted_readiness_den else 0.0
+
+    # Interview Readiness — single canonical formula (mission_engine.compute_readiness),
+    # the same one that powers GET /api/dashboard. Tracks with no progress yet
+    # are omitted so the onboarding self-assessment baseline is used for them,
+    # exactly like the dashboard's calculation.
+    onboarding_doc = await db.onboarding.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
+    readiness_inputs = [
+        {"topic": t["id"], "score": t["mastery_percentage"]}
+        for t in tracks_summary if t["status"] != STATUS_NOT_STARTED
+    ]
+    overall_readiness = compute_readiness(readiness_inputs, onboarding_doc)
 
     # Today's completed topics — count knowledge_nodes whose completion_date is today.
     today_completed_ids: list[str] = []
