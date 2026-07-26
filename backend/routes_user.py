@@ -91,7 +91,10 @@ async def get_profile(user=Depends(get_current_user)):
 @router.patch("/profile", response_model=UserPublic)
 async def update_profile(payload: ProfileUpdate, user=Depends(get_current_user)):
     from server import db
-    updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+    # exclude_unset (not exclude_none) so a field explicitly sent as null
+    # (e.g. avatar_url: null to remove the profile picture) is still applied,
+    # while fields simply omitted from the request are left untouched.
+    updates = payload.model_dump(exclude_unset=True)
     if updates:
         await db.users.update_one({"id": user["id"]}, {"$set": updates})
         from models import ActivityEvent

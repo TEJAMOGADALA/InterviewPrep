@@ -1,11 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { GlassCard } from '@/components/common/GlassCard';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -15,7 +14,7 @@ import { onboardingService } from '@/services/mission.service';
 import { TARGET_COMPANIES, POSITIONS, SELF_ASSESSMENT_TOPICS } from '@/config/companies';
 import { formatApiError } from '@/utils/formatApiError';
 import { PROFILE } from '@/constants/testIds';
-import { Loader2, Save, Pencil, X, Check, Calendar as CalendarIcon, Target } from 'lucide-react';
+import { Loader2, Save, Pencil, X, Check, Calendar as CalendarIcon, Target, Camera } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function initials(name = '') {
@@ -27,6 +26,10 @@ export default function Profile() {
   const [onboarding, setOnboarding] = useState(null);
   const [editing, setEditing] = useState(false);
   const [editingMission, setEditingMission] = useState(false);
+
+  // Profile picture
+  const fileInputRef = useRef(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   // Basic profile fields
   const [name, setName] = useState(user?.name || '');
@@ -59,9 +62,19 @@ export default function Profile() {
   }, []);
 
   const save = async () => {
+    if (!name.trim()) return toast.error('Name is required.');
+    if (!position) return toast.error('Select your years of experience.');
+    if (!hours?.[0]) return toast.error('Set your daily study hours.');
+    if (!targetDate) return toast.error('Pick a target interview date.');
     setSaving(true);
     try {
-      await userService.updateProfile({ name, headline, bio });
+      await userService.updateProfile({ name: name.trim(), headline, bio });
+      const updatedOnboarding = await onboardingService.patch({
+        current_position: position,
+        daily_study_hours: hours[0],
+        interview_target_date: targetDate.toISOString(),
+      });
+      setOnboarding(updatedOnboarding);
       await refresh();
       toast.success('Profile updated.');
       setEditing(false);
@@ -98,6 +111,51 @@ export default function Profile() {
     setCompanies((cur) => cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]);
   };
 
+  const MAX_AVATAR_BYTES = 2 * 1024 * 1024; // 2MB
+
+  const handleAvatarFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please choose an image file.');
+      return;
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      toast.error('Image must be smaller than 2MB.');
+      return;
+    }
+    setUploadingAvatar(true);
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      await userService.updateProfile({ avatar_url: dataUrl });
+      await refresh();
+      toast.success('Profile picture updated.');
+    } catch (err) {
+      toast.error(formatApiError(err));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const removeAvatar = async () => {
+    setUploadingAvatar(true);
+    try {
+      await userService.updateProfile({ avatar_url: null });
+      await refresh();
+      toast.success('Profile picture removed.');
+    } catch (err) {
+      toast.error(formatApiError(err));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   const positionLabel = POSITIONS.find((p) => p.id === onboarding?.current_position)?.label;
 
   return (
@@ -106,26 +164,116 @@ export default function Profile() {
       <GlassCard className="p-6 sm:p-8 relative overflow-hidden">
         <div className="absolute -top-20 -right-20 h-56 w-56 rounded-full bg-primary/10 blur-3xl" />
         <div className="flex flex-col sm:flex-row items-start gap-5">
-          <div className="relative">
-            <div className="h-20 w-20 rounded-2xl bg-gradient-to-br from-primary to-secondary/70 flex items-center justify-center font-display text-3xl font-semibold text-white border border-white/10">
-              {initials(user?.name)}
+          <div className="relative group shrink-0">
+            <div className="h-20 w-20 rounded-2xl bg-gradient-to-br from-primary to-secondary/70 flex items-center justify-center font-display text-3xl font-semibold text-white border border-white/10 overflow-hidden">
+              {user?.avatar_url ? (
+                <img src={user.avatar_url} alt={user?.name || 'Profile'} className="h-full w-full object-cover" data-testid="profile-avatar-image" />
+              ) : (
+                initials(user?.name)
+              )}
             </div>
             <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-emerald-400 border-2 border-background" />
+            <div className="absolute inset-0 rounded-2xl bg-black/55 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center justify-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingAvatar}
+                title={user?.avatar_url ? 'Replace photo' : 'Upload photo'}
+                data-testid="profile-avatar-upload-button"
+                className="h-7 w-7 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-white disabled:opacity-50"
+              >
+                {uploadingAvatar ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+              </button>
+              {user?.avatar_url && (
+                <button
+                  type="button"
+                  onClick={removeAvatar}
+                  disabled={uploadingAvatar}
+                  title="Remove photo"
+                  data-testid="profile-avatar-remove-button"
+                  className="h-7 w-7 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-white disabled:opacity-50"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              data-testid="profile-avatar-input"
+              onChange={handleAvatarFileChange}
+            />
           </div>
           <div className="flex-1">
             {editing ? (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <div>
                   <Label className="mb-1 block text-xs font-mono uppercase tracking-wider text-muted-foreground">Name</Label>
                   <Input value={name} onChange={(e) => setName(e.target.value)} className="bg-white/[0.03] border-white/10" />
                 </div>
                 <div>
-                  <Label className="mb-1 block text-xs font-mono uppercase tracking-wider text-muted-foreground">Headline</Label>
-                  <Input value={headline} onChange={(e) => setHeadline(e.target.value)} placeholder="Aspiring SDE-2 · Google · System Design" className="bg-white/[0.03] border-white/10" />
+                  <Label className="mb-2 block text-xs font-mono uppercase tracking-wider text-muted-foreground">Years of experience</Label>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {POSITIONS.map((p) => {
+                      const active = position === p.id;
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={() => setPosition(p.id)}
+                          data-testid={`profile-edit-position-${p.id}`}
+                          className={cn(
+                            'rounded-lg border px-3 py-2 text-sm transition-colors',
+                            active ? 'border-primary/50 bg-primary/10' : 'border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.04]',
+                          )}
+                        >
+                          {p.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div>
-                  <Label className="mb-1 block text-xs font-mono uppercase tracking-wider text-muted-foreground">Bio</Label>
-                  <Textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={3} placeholder="Tell your interviewer story in 2 lines." className="bg-white/[0.03] border-white/10" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label className="mb-2 block text-xs font-mono uppercase tracking-wider text-muted-foreground">Daily study hours</Label>
+                    <div className="flex items-baseline justify-between mb-2">
+                      <span className="font-display text-2xl font-semibold">
+                        {hours[0]}<span className="text-base text-muted-foreground">h</span>
+                      </span>
+                      <span className="text-xs text-muted-foreground">1h – 8h</span>
+                    </div>
+                    <Slider
+                      value={hours} onValueChange={setHours}
+                      min={1} max={8} step={0.5}
+                      data-testid="profile-edit-hours-slider"
+                    />
+                  </div>
+                  <div>
+                    <Label className="mb-2 block text-xs font-mono uppercase tracking-wider text-muted-foreground">Target interview date</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          data-testid="profile-edit-target-date"
+                          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg border border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.04] transition-colors text-left"
+                        >
+                          <CalendarIcon className="h-4 w-4 text-primary" />
+                          <span className="text-sm">
+                            {targetDate ? format(targetDate, 'PPP') : 'Select date'}
+                          </span>
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="p-0 bg-[hsl(var(--surface))]/95 border-white/10 backdrop-blur-xl">
+                        <Calendar
+                          mode="single"
+                          selected={targetDate}
+                          onSelect={setTargetDate}
+                          initialFocus
+                          disabled={(d) => d < new Date()}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
                 </div>
               </div>
             ) : (

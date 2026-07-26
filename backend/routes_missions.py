@@ -29,6 +29,7 @@ from problem_bank import (
     PROBLEMS, PATTERN_TO_DOMAIN, pattern_counts, problems_by_pattern,
     problem_by_id,
 )
+from leetcode_catalog import get_by_id as catalog_get_by_id
 from services.learning_engine.planner import get_today_learning_node
 
 router = APIRouter(prefix="/api", tags=["missions"])
@@ -555,6 +556,75 @@ async def practice_more(payload: dict, user=Depends(get_current_user)):
         f"Extra practice: {chosen['title']}", description=pattern,
     )
     return {"assignment": assignment.model_dump(), "problem": chosen}
+
+
+# Best-effort mapping from LeetCode Catalog topic tags to Mission Engine
+# pattern keys. Used ONLY to route manually-searched practice through the
+# existing revision/knowledge pipeline at a sensible granularity — this does
+# NOT modify problem_bank.py and does not affect Mission Engine problem
+# selection in any way.
+_CATALOG_TAG_TO_PATTERN = {
+    "array": "arrays", "hash table": "hashing", "two pointers": "two_pointers",
+    "sliding window": "sliding_window", "binary search": "binary_search",
+    "stack": "stack", "linked list": "linked_list", "tree": "trees",
+    "binary tree": "trees", "recursion": "trees", "graph": "graphs",
+    "heap (priority queue)": "heap", "dynamic programming": "dp",
+    "backtracking": "backtracking", "greedy": "greedy", "string": "strings",
+    "bit manipulation": "bit_manipulation", "matrix": "arrays",
+}
+
+
+def _infer_pattern_from_tags(tags: Optional[list]) -> str:
+    for t in tags or []:
+        key = str(t).strip().lower()
+        if key in _CATALOG_TAG_TO_PATTERN:
+            return _CATALOG_TAG_TO_PATTERN[key]
+    return "arrays"
+
+
+@router.post("/coding-arena/manual-assignment")
+async def create_manual_assignment(payload: dict, user=Depends(get_current_user)):
+    """Bridge a manually-searched LeetCode Catalog problem into the existing
+    Mission Engine learning workflow (ProblemAssignment -> submit_problem_feedback
+    -> Learning Engine -> revision queue) WITHOUT touching problem_bank.py.
+
+    The Catalog remains the sole source of problem metadata for manual search;
+    this only creates the minimal ProblemAssignment record the existing
+    FeedbackDialog + feedback endpoint already need to operate.
+    """
+    from server import db
+    leetcode_id = payload.get("leetcode_id")
+    try:
+        leetcode_id = int(leetcode_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="leetcode_id must be an integer")
+
+    problem = catalog_get_by_id(leetcode_id)
+    if not problem:
+        raise HTTPException(status_code=404, detail="Problem not found in catalog")
+
+    pattern = _infer_pattern_from_tags(problem.topic_tags)
+    assignment = ProblemAssignment(
+        user_id=user["id"], problem_id=f"catalog-{problem.leetcode_id}",
+        mission_id=None, pattern=pattern, source="manual_search",
+    )
+    await db.problem_assignments.insert_one(assignment.model_dump())
+    await _log_activity(
+        db, user["id"], "practice_more",
+        f"Manual search practice: {problem.title}", description=pattern,
+    )
+    return {
+        **assignment.model_dump(),
+        "problem": {
+            "id": assignment.problem_id,
+            "title": problem.title,
+            "difficulty": problem.difficulty,
+            "estimated_minutes": 30,
+            "leetcode_url": problem.url,
+            "tags": problem.topic_tags,
+        },
+        "feedback": None,
+    }
 
 
 @router.post("/coding-arena/assignments/{assignment_id}/feedback")

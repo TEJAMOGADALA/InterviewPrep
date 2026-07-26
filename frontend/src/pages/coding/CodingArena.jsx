@@ -4,11 +4,11 @@ import { toast } from 'sonner';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import {
   Code2, ExternalLink, Plus, Loader2, CheckCircle2, Clock,
-  Sparkles, Zap, MessageSquare, X, Star,
+  Sparkles, Zap, MessageSquare, X, Star, Search,
 } from 'lucide-react';
 import { GlassCard } from '@/components/common/GlassCard';
 import { EmptyState } from '@/components/common/EmptyState';
-import { codingArenaService } from '@/services/mission.service';
+import { codingArenaService, leetcodeCatalogService } from '@/services/mission.service';
 import { formatApiError } from '@/utils/formatApiError';
 import { Button } from '@/components/ui/button';
 import {
@@ -41,6 +41,13 @@ export default function CodingArena() {
   const [busy, setBusy] = useState(false);
   const [feedbackFor, setFeedbackFor] = useState(null);
 
+  // LeetCode Catalog manual search (by number, exact title, or fuzzy title)
+  const [searchInput, setSearchInput] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searchResult, setSearchResult] = useState(null);
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchError, setSearchError] = useState('');
+
   const load = useCallback(async () => {
     try {
       const d = await codingArenaService.get();
@@ -68,6 +75,55 @@ export default function CodingArena() {
       toast.error(formatApiError(err));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const onSearchProblem = async (e) => {
+    e?.preventDefault();
+    const raw = searchInput.trim();
+    const digits = raw.replace(/^#/, '').replace(/^lc-/i, '');
+    if (!raw) {
+      setSearchError('Enter a LeetCode problem number or title.');
+      return;
+    }
+    setSearching(true);
+    setSearchError('');
+    setSearchResult(null);
+    setSearchResults([]);
+    try {
+      if (/^\d+$/.test(digits)) {
+        // Numeric search — unchanged exact-id lookup.
+        const problem = await leetcodeCatalogService.getById(digits);
+        setSearchResult(problem);
+      } else {
+        // Title search — exact / partial / fuzzy, ranked results.
+        const results = await leetcodeCatalogService.search(raw);
+        if (!results || results.length === 0) {
+          setSearchError(`No problems found matching "${raw}".`);
+        } else if (results.length === 1) {
+          setSearchResult(results[0]);
+        } else {
+          setSearchResults(results);
+        }
+      }
+    } catch (err) {
+      if (err?.response?.status === 404) {
+        setSearchError(`No problem found with ID #${digits}.`);
+      } else {
+        setSearchError(formatApiError(err));
+        toast.error(formatApiError(err));
+      }
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const onStartManualPractice = async (problem) => {
+    try {
+      const assignment = await codingArenaService.startManualPractice(problem.leetcode_id);
+      setFeedbackFor(assignment);
+    } catch (err) {
+      toast.error(formatApiError(err));
     }
   };
 
@@ -113,6 +169,108 @@ export default function CodingArena() {
           </Button>
         </div>
       </div>
+
+      {/* LeetCode search by problem ID */}
+      <GlassCard className="p-5">
+        <form onSubmit={onSearchProblem} className="flex flex-col sm:flex-row gap-2.5">
+          <div className="flex-1 flex items-center gap-2 h-10 px-3 rounded-lg border border-white/10 bg-white/[0.03]">
+            <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <Input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search by LeetCode number or title, e.g. 53 or Maximum Subarray"
+              data-testid="arena-search-input"
+              className="border-0 bg-transparent p-0 h-auto focus-visible:ring-0 focus-visible:ring-offset-0"
+            />
+          </div>
+          <Button
+            type="submit"
+            disabled={searching}
+            data-testid="arena-search-button"
+            className="bg-primary hover:bg-primary/90 btn-primary-glow"
+          >
+            {searching ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Searching…</> : <><Search className="h-4 w-4 mr-2" />Search</>}
+          </Button>
+        </form>
+
+        {searchError && (
+          <p data-testid="arena-search-error" className="mt-3 text-sm text-rose-300">
+            {searchError}
+          </p>
+        )}
+
+        {searchResult && (
+          <div data-testid="arena-search-result" className="mt-4 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
+            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+              <span className="text-[11px] font-mono text-muted-foreground">#{searchResult.leetcode_id}</span>
+              {difficultyChip(searchResult.difficulty)}
+              {(searchResult.topic_tags || []).map((t) => (
+                <span key={t} className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground border border-white/10 rounded-full px-2 py-0.5">
+                  {t.replace(/_/g, ' ')}
+                </span>
+              ))}
+            </div>
+            <h3 className="font-display text-lg font-medium">{searchResult.title}</h3>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <a
+                href={searchResult.url} target="_blank" rel="noreferrer"
+                data-testid="arena-search-result-open"
+                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] text-xs font-medium transition-colors"
+              >
+                <ExternalLink className="h-3.5 w-3.5" /> Open on LeetCode
+              </a>
+              <button
+                onClick={() => onStartManualPractice(searchResult)}
+                data-testid="arena-search-complete-practice"
+                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/15 text-primary text-xs font-medium transition-colors"
+              >
+                <MessageSquare className="h-3.5 w-3.5" /> Complete Practice
+              </button>
+            </div>
+          </div>
+        )}
+
+        {searchResults.length > 0 && (
+          <div data-testid="arena-search-results-list" className="mt-4 space-y-2">
+            {searchResults.map((p) => (
+              <div
+                key={p.leetcode_id}
+                data-testid={`arena-search-result-${p.leetcode_id}`}
+                className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 flex flex-col sm:flex-row sm:items-center gap-3"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className="text-[11px] font-mono text-muted-foreground">#{p.leetcode_id}</span>
+                    {difficultyChip(p.difficulty)}
+                    {(p.topic_tags || []).slice(0, 3).map((t) => (
+                      <span key={t} className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground border border-white/10 rounded-full px-2 py-0.5">
+                        {t.replace(/_/g, ' ')}
+                      </span>
+                    ))}
+                  </div>
+                  <h4 className="font-display text-base font-medium truncate">{p.title}</h4>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <a
+                    href={p.url} target="_blank" rel="noreferrer"
+                    data-testid={`arena-search-result-open-${p.leetcode_id}`}
+                    className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] text-xs font-medium transition-colors"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" /> Open
+                  </a>
+                  <button
+                    onClick={() => onStartManualPractice(p)}
+                    data-testid={`arena-search-complete-practice-${p.leetcode_id}`}
+                    className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/15 text-primary text-xs font-medium transition-colors"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" /> Complete Practice
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </GlassCard>
 
       {/* Mission recap */}
       <GlassCard className="p-5 relative overflow-hidden">

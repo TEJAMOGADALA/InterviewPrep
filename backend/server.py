@@ -16,6 +16,7 @@ from routes_auth import router as auth_router
 from routes_user import router as user_router
 from routes_missions import router as missions_router
 from routes_roadmap import router as roadmap_router
+from routes_leetcode_catalog import router as leetcode_catalog_router
 from ai_mentor.mentor_routes import router as mentor_router
 
 # ------------------------- DB -------------------------
@@ -61,6 +62,7 @@ app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(missions_router)
 app.include_router(roadmap_router)
+app.include_router(leetcode_catalog_router)
 app.include_router(mentor_router)
 
 # ------------------------- Startup -------------------------

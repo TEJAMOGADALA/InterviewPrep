@@ -35,6 +35,19 @@ export const codingArenaService = {
   submitFeedback: (assignmentId, payload) =>
     api.post(`/coding-arena/assignments/${assignmentId}/feedback`, payload).then((r) => r.data),
   getPatterns: () => api.get('/problems/patterns').then((r) => r.data),
+  // Bridges a manually-searched LeetCode Catalog problem into the existing
+  // ProblemAssignment/feedback/Learning-Engine pipeline (unified learning flow).
+  startManualPractice: (leetcodeId) =>
+    api.post('/coding-arena/manual-assignment', { leetcode_id: leetcodeId }).then((r) => r.data),
+};
+
+// Manual search/discovery only — backed by the standalone LeetCode Catalog,
+// never the Mission Engine's problem_bank.
+export const leetcodeCatalogService = {
+  getById: (leetcodeId) => api.get(`/leetcode/problems/${leetcodeId}`).then((r) => r.data),
+  getByTitle: (title) => api.get(`/leetcode/problems/title/${encodeURIComponent(title)}`).then((r) => r.data),
+  search: (query, limit = 20) =>
+    api.get('/leetcode/problems/search', { params: { q: query, limit } }).then((r) => r.data),
 };
 
 export const knowledgeService = {

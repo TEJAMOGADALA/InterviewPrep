@@ -58,6 +58,37 @@ def clear_auth_cookies(response: Response) -> None:
     response.delete_cookie("refresh_token", path="/")
 
 
+def create_email_token(user_id: str, email: str, purpose: str, expires_minutes: int = 60) -> str:
+    """Generic, short-lived JWT for email-based flows (verification, password
+    reset, etc). Reuses the same JWT secret/algorithm as access/refresh tokens.
+
+    `purpose` scopes the token to a single use case (e.g. "email_verification",
+    "password_reset") so one token type can never be replayed against another
+    endpoint. Never embeds anything beyond user id/email/purpose/expiry.
+    """
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "purpose": purpose,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=expires_minutes),
+        "type": "email_action",
+    }
+    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
+
+
+def decode_email_token(token: str, expected_purpose: str) -> dict:
+    """Decodes + validates a token created by create_email_token().
+
+    Raises jwt.ExpiredSignatureError / jwt.InvalidTokenError on failure —
+    callers should handle these the same way other JWT decode call sites in
+    this codebase do (see routes_auth.refresh_token).
+    """
+    payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+    if payload.get("type") != "email_action" or payload.get("purpose") != expected_purpose:
+        raise jwt.InvalidTokenError("Token type/purpose mismatch")
+    return payload
+
+
 def _extract_token(request: Request) -> str | None:
     token = request.cookies.get("access_token")
     if token:
