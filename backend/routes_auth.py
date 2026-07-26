@@ -194,8 +194,16 @@ async def reset_password(payload: ResetPasswordRequest):
         raise HTTPException(status_code=400, detail="Invalid or expired token")
     if record.get("used"):
         raise HTTPException(status_code=400, detail="Token already used")
-    if record["expires_at"] < datetime.now(timezone.utc):
-        raise HTTPException(status_code=400, detail="Token expired")
+    expires_at = record["expires_at"]
+    # Backward compatibility for old Mongo documents
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=400,
+            detail="Token expired"
+        )
 
     await db.users.update_one(
         {"id": record["user_id"]},

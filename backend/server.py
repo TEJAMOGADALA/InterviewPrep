@@ -21,7 +21,11 @@ from ai_mentor.mentor_routes import router as mentor_router
 
 # ------------------------- DB -------------------------
 mongo_url = os.environ["MONGO_URL"]
-client = AsyncIOMotorClient(mongo_url, tlsCAFile=certifi.where())
+client = AsyncIOMotorClient(
+    mongo_url,
+    tlsCAFile=certifi.where(),
+    tz_aware=True,
+)
 db = client[os.environ["DB_NAME"]]
 
 # ------------------------- App -------------------------
