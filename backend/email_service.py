@@ -26,7 +26,11 @@ from __future__ import annotations
 
 import os
 import logging
-from functools import lru_cache
+# from functools import lru_cache
+import smtplib
+
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from typing import List, Optional
 
 logger = logging.getLogger("prepos.email")
@@ -38,53 +42,83 @@ _APP_NAME = "PrepOS"
 # Low-level provider client (AWS SES) — the ONLY code that talks to SES.
 # --------------------------------------------------------------------------
 
-@lru_cache(maxsize=1)
-def _ses_client():
-    """Lazily creates a cached boto3 SES client (avoids reconnecting per email)."""
-    import boto3
-    region = os.environ.get("AWS_REGION", "us-east-1")
-    return boto3.client("ses", region_name=region)
+# @lru_cache(maxsize=1)
+# def _ses_client():
+#     """Lazily creates a cached boto3 SES client (avoids reconnecting per email)."""
+#     import boto3
+#     region = os.environ.get("AWS_REGION", "us-east-1")
+#     return boto3.client("ses", region_name=region)
 
 
-def _is_configured() -> bool:
-    return bool(os.environ.get("EMAIL_FROM_ADDRESS"))
+def _is_configured():
+    required = [
+        "EMAIL_HOST",
+        "EMAIL_PORT",
+        "EMAIL_USERNAME",
+        "EMAIL_PASSWORD",
+        "EMAIL_FROM_ADDRESS",
+    ]
+
+    return all(os.environ.get(key) for key in required)
 
 
-def send_raw_email(to_email: str, subject: str, html_body: str, text_body: Optional[str] = None) -> bool:
-    """Sends a single email. This is the ONLY function that talks to the email
-    provider — every higher-level sender below must go through this.
-
-    Never raises on delivery failure; logs and returns False instead, so a
-    transient provider outage can't break the calling request (registration,
-    password reset, etc).
+def send_raw_email(
+    to_email: str,
+    subject: str,
+    html_body: str,
+    text_body: Optional[str] = None,
+) -> bool:
     """
+    Sends an email using Gmail SMTP.
+
+    Returns:
+        True  -> Email sent successfully
+        False -> Sending failed
+    """
+
     if not to_email:
         return False
 
     if not _is_configured():
         logger.info(
-            "[EMAIL:DEV-MODE] to=%s subject=%r (EMAIL_FROM_ADDRESS not set — "
-            "logging instead of sending)\n%s",
-            to_email, subject, text_body or html_body,
+            "[EMAIL:DEV-MODE] to=%s subject=%r\n%s",
+            to_email,
+            subject,
+            text_body or html_body,
         )
         return True
 
-    sender = os.environ["EMAIL_FROM_ADDRESS"]
-    body = {"Html": {"Data": html_body, "Charset": "UTF-8"}}
-    if text_body:
-        body["Text"] = {"Data": text_body, "Charset": "UTF-8"}
+    host = os.environ.get("EMAIL_HOST")
+    port = int(os.environ.get("EMAIL_PORT", "587"))
+    username = os.environ.get("EMAIL_USERNAME")
+    password = os.environ.get("EMAIL_PASSWORD")
+    sender = os.environ.get("EMAIL_FROM_ADDRESS")
 
     try:
-        _ses_client().send_email(
-            Source=sender,
-            Destination={"ToAddresses": [to_email]},
-            Message={"Subject": {"Data": subject, "Charset": "UTF-8"}, "Body": body},
-        )
-        return True
-    except Exception:
-        logger.exception("Failed to send email to %s", to_email)
-        return False
+        message = MIMEMultipart("alternative")
+        message["Subject"] = subject
+        message["From"] = sender
+        message["To"] = to_email
 
+        if text_body:
+            message.attach(MIMEText(text_body, "plain", "utf-8"))
+
+        message.attach(MIMEText(html_body, "html", "utf-8"))
+
+        with smtplib.SMTP(host, port) as server:
+            server.starttls()
+            server.login(username, password)
+            server.send_message(message)
+
+        logger.info("Email sent successfully to %s", to_email)
+
+        return True
+
+    except Exception as ex:
+        logger.exception("Failed to send email to %s", to_email)
+        logger.exception(ex)
+
+        return False
 
 # --------------------------------------------------------------------------
 # Shared HTML layout — every template below renders through this so no

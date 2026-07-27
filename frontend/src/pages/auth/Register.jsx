@@ -27,9 +27,18 @@ export default function Register() {
     if (password !== confirm) return setError('Passwords do not match.');
     setSubmitting(true);
     try {
-      const user = await register(name, email, password);
-      toast.success(`Welcome, ${user.name.split(' ')[0]}. Let's initialize your mission.`);
-      navigate('/onboarding', { replace: true });
+      // const user = await register(name, email, password);
+      // toast.success(`Welcome, ${user.name.split(' ')[0]}. Let's initialize your mission.`);
+      // navigate('/onboarding', { replace: true });
+
+      const result = await register(name, email, password);
+      toast.success(result.message);
+      navigate("/login", {
+          replace: true,
+          state: {
+              registeredEmail: email,
+          },
+      });
     } catch (err) {
       setError(formatApiError(err));
     } finally {

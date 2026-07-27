@@ -30,9 +30,15 @@ export function AuthProvider({ children }) {
   };
 
   const register = async (name, email, password) => {
-    const u = await authService.register({ name, email, password });
-    setUser(u);
-    return u;
+    return await authService.register({
+        name,
+        email,
+        password,
+    });
+  };
+
+  const resendVerification = async (email) => {
+  return await authService.resendVerification(email);
   };
 
   const logout = async () => {
@@ -46,6 +52,7 @@ export function AuthProvider({ children }) {
     isAuthenticated: !!user,
     login,
     register,
+    resendVerification,
     logout,
     refresh: checkSession,
     setUser,

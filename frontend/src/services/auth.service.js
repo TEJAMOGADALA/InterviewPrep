@@ -7,6 +7,8 @@ export const authService = {
   me: () => api.get('/auth/me').then((r) => r.data),
   forgotPassword: (email) =>
     api.post('/auth/forgot-password', { email }).then((r) => r.data),
+  resendVerification: (email) =>
+    api.post('/auth/resend-verification', { email }).then((r) => r.data),
   resetPassword: (token, newPassword) =>
     api.post('/auth/reset-password', { token, new_password: newPassword }).then((r) => r.data),
 };
