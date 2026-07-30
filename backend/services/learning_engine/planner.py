@@ -5,10 +5,12 @@ from typing import Iterable, Optional
 
 from roadmap import get_roadmap
 from services.learning_engine.builder import build_learning_recommendation
-from services.learning_engine.ranking import rank_learning_nodes
+from services.learning_engine.insight import build_recommendation_insight
+from services.learning_engine.pacing import forecast_completion
+from services.learning_engine.ranking import rank_learning_nodes, score_learning_node
 from services.learning_engine.revision import get_highest_priority_revision
 from services.learning_engine.unlock import get_unlocked_nodes, next_unlockable_nodes
-from services.roadmap_progress.repository import RoadmapNodeProgressRepository
+from services.progress_engine import load_user_progress_rows
 
 CORE_TRACKS = ["operating_systems", "dbms", "computer_networks"]
 COMPLETED_STATUSES = {"completed", "mastered", "revision_due"}
@@ -130,15 +132,57 @@ def _build_core_recommendation(progress_rows: list) -> Optional[dict]:
 
 
 async def _load_progress_rows(user_id: str, db=None) -> list:
+    """Load the canonical roadmap progress rows used across PrepOS.
+
+    ``roadmap_node_progress`` remains available for historical compatibility,
+    but it is not written by the mission, KB, or feedback workflows. Reading
+    it here made the planner observe a different learner state from every
+    other consumer. The planner now reads ``knowledge_nodes`` directly.
+    """
     if db is None:
         return []
-    repository = RoadmapNodeProgressRepository(db)
-    return await repository.get_for_user(user_id)
+    rows = await load_user_progress_rows(db, user_id)
+    return list(rows.values())
 
 
-async def get_today_learning_node(user_id: str, *, db=None) -> Optional[dict]:
-    """Return the best learning recommendation for the user."""
+async def get_today_learning_node(
+    user_id: str, *, db=None, pacing_state: Optional[dict] = None,
+    target_companies: Optional[Iterable[str]] = None,
+    completed_dates: Optional[Iterable[str]] = None,
+) -> Optional[dict]:
+    """Return the best learning recommendation for the user.
+
+    `pacing_state` (services/learning_engine/pacing.py) is optional and
+    defaults to None, which yields urgency=0.0 — identical ranking to before
+    this parameter existed. When provided, it only nudges ranking toward
+    higher interview-importance/frequency nodes; it never changes unlock or
+    revision-priority logic.
+
+    `target_companies` (Phase 4A) is the learner's onboarding company list.
+    Defaults to None (no companies), which yields company_score=0.0 for every
+    candidate — identical ranking to before this parameter existed. When
+    provided, it activates `ranking.py`'s existing (previously unused)
+    company-aware scoring and tie-breaking.
+
+    `completed_dates` (Phase 4B) is the learner's `knowledge_nodes.completion_date`
+    history. It never affects which node is picked — it is only forwarded to
+    `pacing.forecast_completion()` to attach a completion forecast onto the
+    returned recommendation's `insight`. Defaults to None (no history yet),
+    which yields a zero-pace forecast.
+    """
     progress_rows = await _load_progress_rows(user_id, db)
+    pacing_state = pacing_state or {}
+    urgency = float(pacing_state.get("urgency", 0.0))
+
+    def _attach_insight(node: dict, progress: dict) -> dict:
+        breakdown = score_learning_node(
+            node, progress, target_companies=target_companies, urgency=urgency,
+        )
+        forecast = forecast_completion(pacing_state, completed_dates=completed_dates)
+        return build_recommendation_insight(
+            node, score_breakdown=breakdown, target_companies=target_companies,
+            pacing_state=pacing_state, forecast=forecast,
+        )
 
     revision = get_highest_priority_revision(user_id, progress_rows=progress_rows)
     if revision is not None:
@@ -150,6 +194,7 @@ async def get_today_learning_node(user_id: str, *, db=None) -> Optional[dict]:
                 progress=revision,
                 support_recommendation=_build_support_recommendation(node, progress_rows),
                 core_recommendation=_build_core_recommendation(progress_rows),
+                insight=_attach_insight(node, revision),
             )
 
     unlocked_nodes = get_unlocked_nodes(progress_rows)
@@ -157,14 +202,19 @@ async def get_today_learning_node(user_id: str, *, db=None) -> Optional[dict]:
         return None
 
     progress_map = {row.get("node_id"): row for row in progress_rows if row.get("node_id")}
-    ranked_nodes = rank_learning_nodes(unlocked_nodes, progress_map)
+    ranked_nodes = rank_learning_nodes(
+        unlocked_nodes, progress_map, target_companies=target_companies, urgency=urgency,
+    )
     if not ranked_nodes:
         return None
 
     top_node = ranked_nodes[0]
+    top_progress = progress_map.get(top_node.get("id"), {})
     return build_learning_recommendation(
         top_node,
-        progress=progress_map.get(top_node.get("id"), {}),
+        progress=top_progress,
         support_recommendation=_build_support_recommendation(top_node, progress_rows),
         core_recommendation=_build_core_recommendation(progress_rows),
+        insight=_attach_insight(top_node, top_progress),
     )
+

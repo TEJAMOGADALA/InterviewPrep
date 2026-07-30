@@ -191,14 +191,32 @@ class RoadmapEngine:
         return [t["id"] for t in self._raw["tracks"]]
 
     # ---------- Learning-node traversal ----------
+    @staticmethod
+    def _is_learning_node(node: dict) -> bool:
+        """Return whether ``node`` is an atomic learning unit.
+
+        Most tracks (Java, HLD, Operating Systems, DBMS, Computer Networks,
+        Behavioral, Projects, Resume) put prerequisites/mastery_weight/etc.
+        directly on each ``topics`` entry — the topic itself is the atomic
+        study unit (a leaf: no nested children). DSA and LLD additionally
+        break some topics down further into an explicit ``learning_nodes``
+        container for finer-grained pattern-level tracking. Either shape is
+        an equally valid "learning node" — the leaf granularity decides,
+        never the track — so every track exposes identical Open KB / AI
+        Mentor / Progress / Revision capability through this single API.
+        """
+        if node.get("type") == "node":
+            return True
+        return node.get("type") == "topic" and not node.get("child_ids")
+
     def get_learning_nodes(self) -> List[dict]:
-        """Return every explicit ``learning_nodes`` entry in roadmap order."""
-        return [node for node in self._index.values() if node.get("type") == "node"]
+        """Return every atomic learning unit in roadmap order (see ``_is_learning_node``)."""
+        return [node for node in self._index.values() if self._is_learning_node(node)]
 
     def get_learning_node(self, node_id: str) -> Optional[dict]:
         """Return one explicit learning node, excluding structural nodes."""
         node = self.get(node_id)
-        return node if node and node.get("type") == "node" else None
+        return node if node and self._is_learning_node(node) else None
 
     def get_track_learning_nodes(self, track: str) -> List[dict]:
         """Return explicit learning nodes that belong to ``track``."""

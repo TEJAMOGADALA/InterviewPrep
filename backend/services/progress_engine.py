@@ -9,6 +9,8 @@ same `knowledge_nodes` collection the same way.
 """
 from __future__ import annotations
 
+import uuid
+from datetime import datetime, timezone
 from typing import Dict, Iterable, Optional
 
 
@@ -153,6 +155,22 @@ def build_canonical_progress(roadmap, progress_rows: Optional[Dict[str, dict]] =
     return cache
 
 
+def count_remaining_learning_nodes(roadmap, progress_rows: Dict[str, dict]) -> int:
+    """Count roadmap learning nodes not yet completed/mastered.
+
+    This is the "remaining_curriculum" input to the pacing engine
+    (services/learning_engine/pacing.py) — kept here alongside the other
+    canonical `knowledge_nodes` readers rather than duplicated per caller.
+    """
+    done_statuses = {"completed", "mastered"}
+    remaining = 0
+    for node in roadmap.get_learning_nodes():
+        row = progress_rows.get(node["id"])
+        if not row or row.get("status") not in done_statuses:
+            remaining += 1
+    return remaining
+
+
 async def load_user_progress_rows(db, user_id: str) -> Dict[str, dict]:
     """Canonical loader for a user's `knowledge_nodes` rows, keyed by node_id.
 
@@ -185,3 +203,63 @@ def score_to_node_fields(score: float) -> dict:
         "revision_bucket": bucket,
         "status": status,
     }
+
+
+async def seed_knowledge_nodes_from_self_assessment(
+    db, user_id: str, self_assessment: Dict[str, float], roadmap,
+) -> int:
+    """Onboarding-only baseline seed of `knowledge_nodes` from self-assessment.
+
+    Converts each track's self-assessment slider (1-10) into a starting
+    confidence/weakness/mastery baseline for every learning node in that
+    track only, so the ranking model in services/learning_engine/ranking.py
+    sees different learners differently from day one instead of the
+    identical zeroed defaults every new user previously had.
+
+    Self-assessment is a perceived-confidence signal, not proof of mastery:
+    `status` is always forced to "in_progress" (never "completed"/
+    "mastered") so seeding can never satisfy a prerequisite, unlock a
+    downstream roadmap node, or bypass the prerequisite chain in
+    services/learning_engine/unlock.py.
+
+    Idempotent and non-destructive — a learning node that already has a
+    `knowledge_nodes` row for this user + roadmap version is left untouched.
+    """
+    cur = db.knowledge_nodes.find(
+        {"user_id": user_id, "roadmap_version": roadmap.version}, {"_id": 0, "node_id": 1},
+    )
+    existing_ids = {row["node_id"] for row in await cur.to_list(length=5000)}
+
+    now = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for track, rating in (self_assessment or {}).items():
+        if rating is None:
+            continue
+        fields = score_to_node_fields(float(rating) * 10.0)
+        fields["status"] = "in_progress"  # never "mastered" — must not unlock/complete nodes
+        for node in roadmap.get_track_learning_nodes(track):
+            node_id = node["id"]
+            if node_id in existing_ids:
+                continue
+            existing_ids.add(node_id)
+            rows.append({
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "roadmap_version": roadmap.version,
+                "node_id": node_id,
+                **fields,
+                "last_revision": None,
+                "next_revision": None,
+                "revision_stage": 0,
+                "completion_date": None,
+                "attempts": 0,
+                "actual_solve_minutes": 0,
+                "bookmarked": False,
+                "favorite": False,
+                "notes": None,
+                "updated_at": now,
+            })
+
+    if rows:
+        await db.knowledge_nodes.insert_many(rows)
+    return len(rows)

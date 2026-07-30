@@ -25,23 +25,6 @@ from roadmap import get_roadmap, topic_meta
 # the versioned graph rather than maintaining a second, incomplete catalog.
 TOPIC_META = topic_meta()
 
-# Company weighting bias for topic urgency.
-COMPANY_BIAS = {
-    "google":      {"dsa": 0.3, "hld": 0.2},
-    "microsoft":   {"dsa": 0.25, "lld": 0.2},
-    "uber":        {"hld": 0.3, "dsa": 0.15},
-    "adobe":       {"lld": 0.25, "dsa": 0.2},
-    "atlassian":   {"lld": 0.25, "hld": 0.15},
-    "linkedin":    {"hld": 0.25, "dsa": 0.15},
-    "stripe":      {"hld": 0.25, "dsa": 0.2, "java": 0.15},
-    "salesforce":  {"java": 0.2, "lld": 0.2},
-    "phonepe":     {"hld": 0.2, "dsa": 0.2},
-    "flipkart":    {"dsa": 0.25, "lld": 0.2},
-    "oracle":      {"dbms": 0.3, "java": 0.2},
-    "amazon":      {"dsa": 0.3, "lld": 0.2},
-    "others":      {},
-}
-
 # Weighted readiness formula per company.
 # Missing companies default to READINESS_WEIGHTS.
 COMPANY_READINESS_WEIGHTS = {
@@ -123,9 +106,15 @@ def choose_focus_topic(
         base = baseline.get(t, 5) * 10
         score = progress.get(t, base)
         weights[t] = max(0.0, 100.0 - score)
+    # Company weighting is sourced from roadmap.company_importance() (0-5 per
+    # track) instead of a second hardcoded bias table.
+    roadmap = get_roadmap()
     for c in target_companies or []:
-        for topic, bias in COMPANY_BIAS.get(c, {}).items():
-            weights[topic] = weights.get(topic, 0) * (1 + bias)
+        company_id = str(c).lower()
+        for t in TOPIC_KEYS:
+            importance = roadmap.company_importance(t, company_id)
+            if importance:
+                weights[t] = weights.get(t, 0) * (1 + importance / 10.0)
     total = sum(weights.values()) or 1.0
     r = rng.random() * total
     acc = 0.0
@@ -288,6 +277,7 @@ def build_mission_for_user(
     ds: Optional[str] = None,
     knowledge_nodes: Optional[Dict[str, dict]] = None,
     learning_recommendation: Optional[dict] = None,
+    pacing_state: Optional[dict] = None,
 ) -> tuple[DailyMission, dict]:
     """Return (mission, adjustment_meta). adjustment_meta describes adaptive decisions.
 
@@ -295,9 +285,18 @@ def build_mission_for_user(
     recommendation DTO. This function composes the mission document and tasks,
     but does not independently choose today's roadmap topic when a recommendation
     is provided.
+
+    `pacing_state` (services/learning_engine/pacing.py) is optional and
+    defaults to a no-op ("standard"/urgency 0.0) — existing callers that
+    don't pass it get the exact same mission shape as before. When urgency is
+    high, study hours still cap the daily workload; only how densely that
+    same time budget is used changes.
     """
     ds = ds or today_date_str()
     rng = _seeded_random(user_id, ds)
+    pacing_state = pacing_state or {}
+    pacing_mode = pacing_state.get("pacing_mode", "standard")
+    urgency = float(pacing_state.get("urgency", 0.0))
 
     target_companies = onboarding.get("target_companies", []) if onboarding else []
     daily_hours = float(onboarding.get("daily_study_hours", 2)) if onboarding else 2.0
@@ -340,6 +339,12 @@ def build_mission_for_user(
         practice_count = 2
     else:
         practice_count = 1
+
+    # Interview urgency: same declared daily-hours capacity used more
+    # aggressively (denser mission, not a longer one) when the deadline is
+    # tight. Study hours remain the hard cap on estimated_duration_minutes.
+    if urgency >= 0.7 and daily_hours >= 1.5:
+        practice_count = min(practice_count + 1, 4)
 
     tasks: List[MissionTask] = []
     inserted_prereqs: List[str] = []
@@ -399,12 +404,17 @@ def build_mission_for_user(
     if learning_recommendation is not None:
         support_node = _find_roadmap_node_by_id(learning_recommendation.get("support_node"))
         support_topic = learning_recommendation.get("support_track")
-        if support_topic not in TOPIC_KEYS:
+        # TOPIC_META (roadmap.topic_meta()) is keyed by every real roadmap
+        # track — dsa/java/lld/hld/os/dbms/cn plus behavioral/projects/resume
+        # and any future track. TOPIC_KEYS is a legacy 7-track subset used only
+        # for onboarding self-assessment sliders; validating against it here
+        # silently dropped the support recommendation for any other track.
+        if support_topic not in TOPIC_META:
             support_topic = learning_recommendation.get("support_topic")
-            if support_topic not in TOPIC_KEYS:
+            if support_topic not in TOPIC_META:
                 support_topic = None
 
-    if support_topic in TOPIC_KEYS:
+    if support_topic in TOPIC_META:
         support_meta = TOPIC_META[support_topic]
 
     if support_node is None and support_topic is not None:
@@ -415,7 +425,7 @@ def build_mission_for_user(
     elif support_topic is None or support_meta is None:
         # Compatibility safeguard: only use legacy topic meta when the support
         # recommendation payload is invalid or the track is unknown.
-        support_pool = [t for t in TOPIC_KEYS if t != focus_topic]
+        support_pool = [t for t in TOPIC_META if t != focus_topic]
         support_topic = rng.choice(support_pool)
         support_meta = TOPIC_META[support_topic]
         support_sub, _ = rng.choice(support_meta["subtopics"])
@@ -443,9 +453,11 @@ def build_mission_for_user(
             # revert to legacy TOPIC_META when roadmap-backed core selection fails.
             pass
 
-    # Revision tasks (from spaced-repetition queue)
+    # Revision tasks (from spaced-repetition queue). Critical pacing (interview
+    # very close) allows one extra revision slot — still capped, still realistic.
+    revision_cap = 3 if pacing_mode == "critical" else 2
     revision_task_ids: List[str] = []
-    for rev in revisions_due[:2]:
+    for rev in revisions_due[:revision_cap]:
         rt = MissionTask(
             title=f"Revise: {rev['task_title']}",
             kind="revise",
@@ -485,6 +497,7 @@ def build_mission_for_user(
         learning_objective=objective,
         tasks=tasks,
         revision_task_ids=revision_task_ids,
+        recommendation_insight=learning_recommendation.get("insight") if learning_recommendation else None,
     )
 
     adjustment = {
@@ -493,6 +506,8 @@ def build_mission_for_user(
         "detected_weaknesses": detected_weaknesses,
         "inserted_prerequisites": inserted_prereqs,
         "advance": mode == "advance",
+        "pacing_mode": pacing_mode,
+        "urgency": urgency,
     }
     return mission, adjustment
 

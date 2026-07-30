@@ -10,12 +10,15 @@ def build_learning_recommendation(
     progress: Optional[dict] = None,
     support_recommendation: Optional[dict] = None,
     core_recommendation: Optional[dict] = None,
+    insight: Optional[dict] = None,
 ) -> dict:
     """Convert a roadmap node into a structured learning recommendation."""
     progress = progress or {}
     confidence = float(progress.get("confidence", 0.0) or 0.0)
     weakness = float(progress.get("weakness_score", 0.0) or 0.0)
-    mastery = float(progress.get("mastery", 0.0) or 0.0)
+    mastery = float(
+        progress.get("mastery_percentage", progress.get("mastery", 0.0)) or 0.0
+    )
 
     reason_parts = [
         f"Focus on {node.get('label') or node.get('id')}",
@@ -43,4 +46,6 @@ def build_learning_recommendation(
         for key, value in core_recommendation.items():
             if value is not None:
                 recommendation[key] = value
+    if insight is not None:
+        recommendation["insight"] = insight
     return recommendation

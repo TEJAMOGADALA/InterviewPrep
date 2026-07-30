@@ -22,6 +22,7 @@ from mission_engine import (
 from services.streak_engine import update_streak_on_completion, streak_days_grid
 from services.progress_engine import (
     build_canonical_progress, load_user_progress_rows, score_to_node_fields,
+    count_remaining_learning_nodes,
 )
 from services.revision_engine import get_revisions_for_user, mark_node_for_revision
 from roadmap import get_roadmap, CURRENT_VERSION
@@ -31,6 +32,7 @@ from problem_bank import (
 )
 from leetcode_catalog import get_by_id as catalog_get_by_id
 from services.learning_engine.planner import get_today_learning_node
+from services.learning_engine.pacing import compute_pacing_state
 
 router = APIRouter(prefix="/api", tags=["missions"])
 
@@ -139,6 +141,58 @@ async def _count_extra_practice_yesterday(db, user_id: str) -> int:
     })
 
 
+def _progress_node_id_for_task(task: dict) -> str:
+    """Return the concrete roadmap node represented by a mission task.
+
+    New missions carry ``node_id`` for roadmap-backed tasks. Keep the track
+    fallback for historical mission documents that were created before node
+    linkage existed.
+    """
+    node_id = task.get("node_id")
+    if node_id and get_roadmap(CURRENT_VERSION).get(node_id):
+        return node_id
+    return task["topic"]
+
+
+async def _record_completed_task_progress(
+    db, user_id: str, task: dict, difficulty: str, baseline: dict, now: str,
+) -> str:
+    """Persist one completed task on the canonical per-node progress row."""
+    node_id = _progress_node_id_for_task(task)
+    existing_node = await db.knowledge_nodes.find_one(
+        {"user_id": user_id, "roadmap_version": CURRENT_VERSION, "node_id": node_id}, {"_id": 0},
+    )
+    baseline_score = baseline.get(task["topic"], 5) * 10
+    current = float(existing_node["mastery_percentage"]) if existing_node else float(baseline_score)
+    new_score = apply_knowledge_gain(current, difficulty, task["kind"])
+    fields = score_to_node_fields(new_score)
+    await db.knowledge_nodes.update_one(
+        {"user_id": user_id, "roadmap_version": CURRENT_VERSION, "node_id": node_id},
+        {"$set": {
+            **fields,
+            "user_id": user_id, "roadmap_version": CURRENT_VERSION, "node_id": node_id,
+            "status": "completed", "completion_date": now, "updated_at": now,
+        }},
+        upsert=True,
+    )
+    await mark_node_for_revision(db, user_id, CURRENT_VERSION, node_id)
+    return node_id
+
+
+async def _assignment_progress_node_id(db, assignment: dict) -> Optional[str]:
+    """Find the concrete mission node behind a coding assignment, if any."""
+    mission_id = assignment.get("mission_id")
+    if not mission_id:
+        return None
+    mission = await db.daily_missions.find_one({"id": mission_id}, {"tasks": 1})
+    if not mission:
+        return None
+    for task in mission.get("tasks", []):
+        if task.get("kind") == "practice" and task.get("pattern") == assignment.get("pattern"):
+            return _progress_node_id_for_task(task)
+    return None
+
+
 async def _attach_problems_to_mission(db, mission: DailyMission) -> None:
     """For any practice task with `pattern`, create ProblemAssignment records."""
     for task in mission.tasks:
@@ -176,7 +230,18 @@ async def _generate_today_mission(db, user_id: str) -> DailyMission:
     recent_feedback = await _get_recent_feedback(db, user_id, hours=36)
     extra_yesterday = await _count_extra_practice_yesterday(db, user_id)
 
-    learning_recommendation = await get_today_learning_node(user_id, db=db)
+    remaining_curriculum = count_remaining_learning_nodes(get_roadmap(), knowledge_nodes)
+    pacing_state = compute_pacing_state(
+        onboarding.get("interview_target_date"),
+        onboarding.get("daily_study_hours"),
+        remaining_curriculum,
+    )
+
+    learning_recommendation = await get_today_learning_node(
+        user_id, db=db, pacing_state=pacing_state,
+        target_companies=onboarding.get("target_companies"),
+        completed_dates=[row.get("completion_date") for row in knowledge_node_rows if row.get("completion_date")],
+    )
 
     mission, adjustment = build_mission_for_user(
         user_id, onboarding, knowledge, revisions_due,
@@ -184,6 +249,7 @@ async def _generate_today_mission(db, user_id: str) -> DailyMission:
         extra_practice_count_yesterday=extra_yesterday,
         knowledge_nodes=knowledge_nodes,
         learning_recommendation=learning_recommendation,
+        pacing_state=pacing_state,
     )
     await db.daily_missions.insert_one(mission.model_dump())
     await _attach_problems_to_mission(db, mission)
@@ -281,29 +347,11 @@ async def toggle_task(mission_id: str, task_id: str, user=Depends(get_current_us
         task["completed"] = True
         task["completed_at"] = _now_iso()
 
-        node_id = task["topic"]
         onboarding = await _get_onboarding(db, user["id"])
-        baseline_score = (onboarding or {}).get("self_assessment", {}).get(task["topic"], 5) * 10
-        existing_node = await db.knowledge_nodes.find_one(
-            {"user_id": user["id"], "roadmap_version": CURRENT_VERSION, "node_id": node_id}, {"_id": 0},
+        await _record_completed_task_progress(
+            db, user["id"], task, doc["difficulty"],
+            (onboarding or {}).get("self_assessment", {}), task["completed_at"],
         )
-        current = float(existing_node["mastery_percentage"]) if existing_node else float(baseline_score)
-        new_score = apply_knowledge_gain(current, doc["difficulty"], task["kind"])
-        fields = score_to_node_fields(new_score)
-        await db.knowledge_nodes.update_one(
-            {"user_id": user["id"], "roadmap_version": CURRENT_VERSION, "node_id": node_id},
-            {"$set": {
-                **fields,
-                "user_id": user["id"], "roadmap_version": CURRENT_VERSION, "node_id": node_id,
-                "updated_at": _now_iso(),
-            }},
-            upsert=True,
-        )
-
-        # Advance (or start) this node's spaced-repetition schedule. The
-        # canonical engine decides internally whether this is a first-time
-        # schedule or an advance from the existing stage.
-        await mark_node_for_revision(db, user["id"], CURRENT_VERSION, node_id)
 
         await db.daily_missions.update_one(
             {"id": mission_id}, {"$set": {"tasks": doc["tasks"]}},
@@ -338,22 +386,8 @@ async def complete_mission(mission_id: str, user=Depends(get_current_user)):
         if not t["completed"]:
             t["completed"] = True
             t["completed_at"] = now
-            node_id = t["topic"]
-            existing_node = await db.knowledge_nodes.find_one(
-                {"user_id": user["id"], "roadmap_version": CURRENT_VERSION, "node_id": node_id}, {"_id": 0},
-            )
-            baseline_score = baseline.get(t["topic"], 5) * 10
-            current = float(existing_node["mastery_percentage"]) if existing_node else float(baseline_score)
-            new_score = apply_knowledge_gain(current, doc["difficulty"], t["kind"])
-            fields = score_to_node_fields(new_score)
-            await db.knowledge_nodes.update_one(
-                {"user_id": user["id"], "roadmap_version": CURRENT_VERSION, "node_id": node_id},
-                {"$set": {
-                    **fields,
-                    "user_id": user["id"], "roadmap_version": CURRENT_VERSION, "node_id": node_id,
-                    "updated_at": now,
-                }},
-                upsert=True,
+            await _record_completed_task_progress(
+                db, user["id"], t, doc["difficulty"], baseline, now,
             )
 
     await db.daily_missions.update_one(
@@ -654,16 +688,12 @@ async def submit_problem_feedback(
     # canonical `knowledge_nodes` collection (no parallel knowledge_progress
     # write; see services/progress_engine.py).
     p = problem_by_id(a["problem_id"])
-    domain, _ = PATTERN_TO_DOMAIN.get(a["pattern"], ("dsa", ""))
-    if p:
+    progress_node_id = await _assignment_progress_node_id(db, a)
+    if progress_node_id:
         # Sync to Roadmap KnowledgeNode (pattern node + track node)
         try:
-            from roadmap import get_roadmap as _get_rm, CURRENT_VERSION as _V
-            _rm = _get_rm(_V)
-            pattern_nodes = _rm.by_pattern(a["pattern"])
-            targets = set([domain])
-            if pattern_nodes:
-                targets.add(pattern_nodes[0]["id"])
+            from roadmap import CURRENT_VERSION as _V
+            targets = {progress_node_id}
             for nid in targets:
                 # Confidence is weighted running average with new feedback point
                 existing = await db.knowledge_nodes.find_one(
@@ -675,7 +705,8 @@ async def submit_problem_feedback(
                 weak = max(0.0, 100 - new_conf * 10)
                 mastery = min(100.0, new_conf * 10)
                 bucket = "green" if new_conf >= 7 else "yellow" if new_conf >= 4 else "red"
-                status = "mastered" if new_conf >= 9 else "in_progress"
+                solved = payload.solved_status != "could_not_solve"
+                status = "mastered" if solved and new_conf >= 9 else "completed" if solved else "in_progress"
                 await db.knowledge_nodes.update_one(
                     {"user_id": user["id"], "roadmap_version": _V, "node_id": nid},
                     {"$set": {
@@ -683,6 +714,7 @@ async def submit_problem_feedback(
                         "confidence": new_conf, "weakness_score": weak,
                         "mastery_percentage": mastery,
                         "revision_bucket": bucket, "status": status,
+                        **({"completion_date": _now_iso()} if solved else {}),
                         "updated_at": _now_iso(),
                     }},
                     upsert=True,
@@ -692,7 +724,10 @@ async def submit_problem_feedback(
 
     # Schedule revision from confidence — canonical Revision Engine, keyed by
     # the track node (same granularity toggle_task uses).
-    await mark_node_for_revision(db, user["id"], CURRENT_VERSION, domain, confidence=payload.confidence)
+    if progress_node_id:
+        await mark_node_for_revision(
+            db, user["id"], CURRENT_VERSION, progress_node_id, confidence=payload.confidence,
+        )
 
     # Weakness detection
     if payload.confidence <= 4 or payload.solved_status in ("multi_hints", "could_not_solve"):
@@ -881,12 +916,13 @@ async def get_dashboard(user=Depends(get_current_user)):
     adj_list = await adj_cursor.to_list(length=1)
     adj_doc = adj_list[0] if adj_list else None
 
-    days_to_target = None
-    try:
-        target = datetime.fromisoformat(onboarding["interview_target_date"].replace("Z", "+00:00"))
-        days_to_target = max(0, (target.date() - datetime.now(timezone.utc).date()).days)
-    except Exception:
-        pass
+    # Single source of truth for interview-deadline pacing — the same function
+    # the planner/mission generator use — so the UI countdown never drifts.
+    pacing_state = compute_pacing_state(
+        onboarding.get("interview_target_date"),
+        onboarding.get("daily_study_hours"),
+    )
+    days_to_target = pacing_state["remaining_days"]
 
     return {
         "today": today,
@@ -911,7 +947,15 @@ async def get_dashboard(user=Depends(get_current_user)):
             "estimated_prep_days": onboarding.get("estimated_prep_days"),
             "days_to_target": days_to_target,
         },
+        "pacing": {
+            "has_target_date": pacing_state["has_target_date"],
+            "remaining_days": pacing_state["remaining_days"],
+            "pacing_mode": pacing_state["pacing_mode"],
+            "label": pacing_state["label"],
+            "emoji": pacing_state["emoji"],
+        },
     }
+
 
 
 # ============ Onboarding patch ============

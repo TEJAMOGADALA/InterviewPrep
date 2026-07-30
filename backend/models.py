@@ -159,6 +159,10 @@ class DailyMission(BaseModel):
     tomorrow_preview: Optional[dict] = None
     week_goal: Optional[dict] = None
     ai_narrative: Optional[str] = None  # 1-2 sentence "why this mission today" from the mentor
+    # Phase 4B: the Learning Engine's explainable "why this node" object
+    # (services/learning_engine/insight.py) — same source of truth read by
+    # AI Mentor's context builder and reusable by future Analytics/Mobile.
+    recommendation_insight: Optional[dict] = None
     created_at: str = Field(default_factory=_now_iso)
     completed_at: Optional[str] = None
     skipped_at: Optional[str] = None

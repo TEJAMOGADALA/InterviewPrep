@@ -38,7 +38,7 @@ class FakeCollection:
 
 class FakeDB:
     def __init__(self, rows):
-        self.roadmap_node_progress = FakeCollection(rows)
+        self.knowledge_nodes = FakeCollection(rows)
 
 
 def test_unlock_logic_respects_prerequisites():

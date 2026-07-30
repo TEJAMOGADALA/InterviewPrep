@@ -8,6 +8,8 @@ from models import (
     ProfileUpdate, UserPublic,
     UserSettings, SettingsUpdate,
 )
+from roadmap import get_roadmap, CURRENT_VERSION
+from services.progress_engine import seed_knowledge_nodes_from_self_assessment
 
 router = APIRouter(prefix="/api", tags=["user"])
 
@@ -69,6 +71,11 @@ async def submit_onboarding(payload: OnboardingPayload, user=Depends(get_current
     )
     from services.roadmap_progress import initialize_roadmap_progress_for_user
     await initialize_roadmap_progress_for_user(db, user["id"])
+    # Canonical planner input: seed `knowledge_nodes` (not `roadmap_node_progress`)
+    # so the Learning Engine ranks tracks per this user's self-assessment from day one.
+    await seed_knowledge_nodes_from_self_assessment(
+        db, user["id"], payload.self_assessment.model_dump(), get_roadmap(CURRENT_VERSION),
+    )
     return OnboardingRecord(**doc)
 
 

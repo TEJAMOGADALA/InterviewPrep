@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import {
   Target, ShieldCheck, RefreshCcw, GraduationCap,
   Sparkles, Check, SkipForward, Loader2,
-  CheckCircle2, Circle, Clock, Zap, TrendingUp, ChevronDown, Route,
+  CheckCircle2, Circle, Clock, Zap, TrendingUp, ChevronDown, Route, Calendar,
 } from 'lucide-react';
 import { format, formatDistanceToNow, parseISO } from 'date-fns';
 import { GlassCard } from '@/components/common/GlassCard';
@@ -149,7 +149,7 @@ export default function MissionControl() {
     );
   }
 
-  const { mission, streak, readiness, knowledge, revisions, activity, onboarding, adjustment, company_readiness } = data;
+  const { mission, streak, readiness, knowledge, revisions, activity, onboarding, adjustment, company_readiness, pacing } = data;
   const tasks = mission.tasks || [];
   const doneCount = tasks.filter((t) => t.completed).length;
   const totalCount = tasks.length || 1;
@@ -178,9 +178,22 @@ export default function MissionControl() {
             {onboarding.days_to_target != null && <> · {onboarding.days_to_target} days to target</>}.
           </p>
         </div>
-        <div className="hidden sm:flex items-center gap-2 text-xs font-mono text-muted-foreground">
-          <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-          Adaptive Engine · v2
+        <div className="hidden sm:flex items-center gap-3 text-xs font-mono text-muted-foreground">
+          {pacing?.has_target_date && (
+            <span
+              data-testid="dashboard-interview-countdown"
+              className="flex items-center gap-2 rounded-full border border-primary/25 bg-primary/[0.06] px-3 py-1.5"
+            >
+              <Calendar className="h-3.5 w-3.5 text-primary" />
+              <span>{pacing.remaining_days} Days Left</span>
+              <span className="text-white/20">·</span>
+              <span>{pacing.emoji} {pacing.label}</span>
+            </span>
+          )}
+          <span className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            Adaptive Engine · v2
+          </span>
         </div>
       </motion.div>
 
