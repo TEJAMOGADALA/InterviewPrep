@@ -162,6 +162,25 @@ class RoadmapEngine:
         nodes = self._by_pattern.get(pattern, [])
         return nodes[0] if nodes else None
 
+    def pattern_for_node(self, node_id: str) -> Optional[str]:
+        """Return the interview pattern for a node, inherited from the nearest
+        ancestor topic that declares one.
+
+        `pattern` is authored once per topic (e.g. ``dsa.windows.sliding_window``)
+        rather than duplicated on every leaf learning node, so a leaf-level
+        recommendation (e.g. "Minimum Window Substring") must walk up the tree
+        to find it instead of relying on a legacy label-keyed lookup table.
+        """
+        node = self.get(node_id)
+        if not node:
+            return None
+        if node.get("pattern"):
+            return node["pattern"]
+        for ancestor in reversed(self.ancestors(node_id)):
+            if ancestor.get("pattern"):
+                return ancestor["pattern"]
+        return None
+
     def problems_for_node(self, node_id: str) -> List[str]:
         n = self.get(node_id)
         if not n:
@@ -327,3 +346,8 @@ def pattern_to_track() -> Dict[str, str]:
         track = r.find_track(node["id"])
         result[pat] = (track["id"] if track else "dsa", node["label"])
     return result
+
+
+def pattern_for_node(node_id: str, version: str = CURRENT_VERSION) -> Optional[str]:
+    """Return the interview pattern for a learning node (see `RoadmapEngine.pattern_for_node`)."""
+    return get_roadmap(version).pattern_for_node(node_id)

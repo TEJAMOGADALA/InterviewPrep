@@ -88,7 +88,7 @@ def score_learning_node(
 
     total_score = (
         knowledge_gap * mastery_weight
-        + company_score * 0.05
+        + company_score * 0.6
         + roi_score * 0.05
         - difficulty_penalty * 10.0
         - min(estimated_minutes, 60) * 0.01

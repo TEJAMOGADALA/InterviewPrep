@@ -40,25 +40,23 @@ async def _load_user_profile(db, user_id: str) -> Dict[str, Any]:
         {"id": user_id},
         {"_id": 0, "id": 1, "email": 1, "name": 1, "role": 1, "roadmap_version": 1},
     ) or {}
-    settings = await db.settings.find_one(
-        {"user_id": user_id},
-        {"_id": 0, "target_companies": 1, "target_date": 1, "study_hours_per_week": 1,
-         "skill_level": 1, "position": 1},
-    ) or {}
+    # NOTE: the onboarding document's real field names are `current_position`,
+    # `interview_target_date`, and `daily_study_hours` (see models.OnboardingRecord).
+    # A `settings.position`/`skill_level` lookup used to shadow this with fields
+    # that don't exist on UserSettings, so this block always resolved to 'n/a'
+    # regardless of what the learner selected during onboarding.
     onboarding = await db.onboarding.find_one(
         {"user_id": user_id},
-        {"_id": 0, "target_companies": 1, "target_date": 1, "study_hours_per_week": 1,
-         "skill_level": 1, "position": 1, "focus_areas": 1},
+        {"_id": 0, "target_companies": 1, "interview_target_date": 1,
+         "daily_study_hours": 1, "current_position": 1},
     ) or {}
     return {
         "name": user.get("name"),
         "email": user.get("email"),
-        "target_companies": settings.get("target_companies") or onboarding.get("target_companies") or [],
-        "position": settings.get("position") or onboarding.get("position"),
-        "target_date": settings.get("target_date") or onboarding.get("target_date"),
-        "study_hours_per_week": settings.get("study_hours_per_week") or onboarding.get("study_hours_per_week"),
-        "skill_level": settings.get("skill_level") or onboarding.get("skill_level"),
-        "focus_areas": onboarding.get("focus_areas") or [],
+        "target_companies": onboarding.get("target_companies") or [],
+        "position": onboarding.get("current_position"),
+        "target_date": onboarding.get("interview_target_date"),
+        "daily_study_hours": onboarding.get("daily_study_hours"),
     }
 
 
@@ -415,15 +413,12 @@ def _serialize_context(context: Dict[str, Any]) -> str:
     # Profile
     lines.append(
         f"* **Learner**: {p.get('name') or 'Unknown'}"
-        f" · Position: {p.get('position') or 'n/a'}"
-        f" · Skill self-rating: {p.get('skill_level') or 'n/a'}/10"
-        f" · Hours/week: {p.get('study_hours_per_week') or 'n/a'}"
+        f" · Position/experience: {p.get('position') or 'n/a'}"
+        f" · Study hours/day: {p.get('daily_study_hours') or 'n/a'}"
         f" · Target date: {p.get('target_date') or 'n/a'}"
     )
     tc = p.get("target_companies") or []
     lines.append(f"* **Target companies**: {_fmt_list(tc)}")
-    if p.get("focus_areas"):
-        lines.append(f"* **Declared focus areas**: {_fmt_list(p['focus_areas'])}")
 
     # Summary
     lines.append(

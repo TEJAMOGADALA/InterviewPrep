@@ -309,6 +309,31 @@ export default function MissionControl() {
                 <div className="text-sm text-foreground/95">{mission.ai_narrative}</div>
               </div>
             )}
+            {mission.recommendation_insight && (
+              <div className="mt-3 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3.5 py-2.5" data-testid="mission-recommendation-insight">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                    Why this mission
+                  </div>
+                  <span className="text-[11px] font-mono text-muted-foreground shrink-0">
+                    Score {mission.recommendation_insight.overall_score}
+                  </span>
+                </div>
+                <div className="text-sm text-foreground/90">{mission.recommendation_insight.explanation}</div>
+                {mission.recommendation_insight.highlights?.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {mission.recommendation_insight.highlights.map((h, i) => (
+                      <span
+                        key={i}
+                        className="px-2 py-0.5 rounded-full text-[11px] border border-primary/25 bg-primary/[0.08] text-primary/90"
+                      >
+                        {h}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="mt-6 grid grid-cols-3 gap-6">
               <div>
                 <div className="overline mb-1">Focus</div>

@@ -16,7 +16,7 @@ from problem_bank import (
     SUBTOPIC_TO_PATTERN, PATTERN_TO_DOMAIN, PATTERN_PREREQUISITES,
     problems_by_pattern,
 )
-from roadmap import get_roadmap, topic_meta
+from roadmap import get_roadmap, topic_meta, pattern_for_node
 
 
 # --------------------- Content library ---------------------
@@ -61,6 +61,41 @@ def _seeded_random(user_id: str, ds: str) -> random.Random:
 
 def _pattern_from_subtopic(sub: str) -> Optional[str]:
     return SUBTOPIC_TO_PATTERN.get(sub)
+
+
+# Experience-aware difficulty calibration. The roadmap authors each node's
+# inherent difficulty once; this maps the learner's self-reported experience
+# band to a difficulty ceiling/floor so a Student is never handed a "hard"
+# mission and a Senior is never left on "easy" alone — symmetric in both
+# directions, unlike a single narrow bump condition.
+_EXPERIENCE_DIFFICULTY_CEILING = {
+    "student": "medium",
+    "0-1": "medium",
+    "1-3": "hard",
+    "3-5": "hard",
+    "5+": "hard",
+}
+_EXPERIENCE_DIFFICULTY_FLOOR = {
+    "student": "easy",
+    "0-1": "easy",
+    "1-3": "easy",
+    "3-5": "medium",
+    "5+": "medium",
+}
+_DIFFICULTY_ORDER = {"easy": 0, "medium": 1, "hard": 2}
+
+
+def _clamp_difficulty_to_experience(difficulty: str, position: str) -> str:
+    """Clamp a roadmap node's authored difficulty into the learner's experience band."""
+    ceiling = _EXPERIENCE_DIFFICULTY_CEILING.get(position, "hard")
+    floor = _EXPERIENCE_DIFFICULTY_FLOOR.get(position, "easy")
+    order = _DIFFICULTY_ORDER
+    clamped = difficulty if difficulty in order else "medium"
+    if order[clamped] > order.get(ceiling, 2):
+        clamped = ceiling
+    if order[clamped] < order.get(floor, 0):
+        clamped = floor
+    return clamped
 
 
 def _roadmap_study_task(node: dict, action: str = "Study") -> MissionTask:
@@ -327,10 +362,12 @@ def build_mission_for_user(
 
     meta = TOPIC_META[focus_topic]
 
-    # Nudge difficulty from experience
+    # Calibrate difficulty to the learner's declared experience band. The
+    # roadmap node's own authored difficulty is the base signal; this only
+    # clamps it into a sane range for the learner instead of leaving mission
+    # difficulty entirely dictated by the static node metadata.
     position = (onboarding or {}).get("current_position", "0-1")
-    if position in ("3-5", "5+") and base_difficulty == "easy":
-        base_difficulty = "medium"
+    base_difficulty = _clamp_difficulty_to_experience(base_difficulty, position)
 
     # Practice count scales with hours
     if daily_hours >= 3:
@@ -371,7 +408,14 @@ def build_mission_for_user(
             tasks = tasks[:2]
 
     # -------- Primary task on focus topic --------
-    pattern = _pattern_from_subtopic(subtopic)
+    # `pattern` is authored once per topic in the roadmap (e.g. sliding_window),
+    # not duplicated on every leaf learning node — so a leaf-level recommendation
+    # (the norm for DSA, e.g. "Minimum Window Substring") must resolve its pattern
+    # via the roadmap graph. Fall back to the legacy label lookup only when no
+    # roadmap node id is available (e.g. the deprecated select_primary_topic path).
+    pattern = pattern_for_node(primary_node_id) if primary_node_id else None
+    if not pattern:
+        pattern = _pattern_from_subtopic(subtopic)
     if focus_topic == "dsa" and pattern:
         # Real practice: coding problems attached (populated by route caller)
         tasks.append(MissionTask(

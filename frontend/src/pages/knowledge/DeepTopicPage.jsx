@@ -116,6 +116,14 @@ export default function DeepTopicPage() {
           <ChevronRight className="h-3 w-3" />
           <span className="text-foreground">{node.label}</span>
         </span>
+        <button
+          onClick={() => navigate('/app/mission-control')}
+          data-testid="deep-topic-back-to-mission"
+          className="ml-auto inline-flex items-center gap-1.5 hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-3 w-3" />
+          Back to Mission
+        </button>
       </div>
 
       {/* Hero */}

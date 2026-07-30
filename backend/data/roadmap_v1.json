@@ -105,7 +105,9 @@
                   "prerequisites": [],
                   "related": [
                     "dsa.foundations.arrays.prefix_sum",
+                    "dsa.foundations.hashing.frequency",
                     "dsa.foundations.two_pointers",
+                    "dsa.foundations.two_pointers.palindrome",
                     "dsa.search.binary_search",
                     "dsa.foundations.arrays.kadane",
                     "dsa.foundations.arrays.diff_array",
@@ -412,6 +414,9 @@
                   "estimated_minutes": 20,
                   "interview_frequency": 5,
                   "mastery_weight": 1.2,
+                  "prerequisites": [
+                    "dsa.foundations.arrays.traversal"
+                  ],
                   "problem_ids": [
                     "lc-217",
                     "lc-49",
@@ -423,9 +428,9 @@
                   "neetcode_tags": [
                     "arrays-hashing"
                   ],
-                  "prerequisites": [],
                   "related": [
                     "dsa.foundations.strings.anagram",
+                    "dsa.windows.sliding_window.fixed.max_avg",
                     "dsa.foundations.hashing.two_sum",
                     "dsa.foundations.hashing.subarray_sum",
                     "dsa.foundations.hashing.consecutive"
@@ -669,6 +674,9 @@
                   "estimated_minutes": 15,
                   "interview_frequency": 4,
                   "mastery_weight": 1.0,
+                  "prerequisites": [
+                    "dsa.foundations.arrays.traversal"
+                  ],
                   "problem_ids": [
                     "lc-125",
                     "lc-680"
@@ -680,8 +688,8 @@
                   "neetcode_tags": [
                     "two-pointers"
                   ],
-                  "prerequisites": [],
                   "related": [
+                    "dsa.windows.sliding_window.fixed.max_avg",
                     "dsa.foundations.two_pointers.k_sum",
                     "dsa.foundations.two_pointers.container",
                     "dsa.foundations.two_pointers.remove_dup"
@@ -1472,6 +1480,10 @@
                       "estimated_minutes": 15,
                       "interview_frequency": 3,
                       "mastery_weight": 1.0,
+                      "prerequisites": [
+                        "dsa.foundations.two_pointers.palindrome",
+                        "dsa.foundations.hashing.frequency"
+                      ],
                       "problem_ids": [
                         "lc-643"
                       ],
@@ -1481,7 +1493,6 @@
                       "neetcode_tags": [
                         "sliding-window"
                       ],
-                      "prerequisites": [],
                       "related": [
                         "dsa.windows.sliding_window.fixed.max_sum_k"
                       ],
@@ -1519,6 +1530,9 @@
                       "estimated_minutes": 15,
                       "interview_frequency": 3,
                       "mastery_weight": 1.0,
+                      "prerequisites": [
+                        "dsa.windows.sliding_window.fixed.max_avg"
+                      ],
                       "problem_ids": [
                         "lc-2461"
                       ],
@@ -1528,8 +1542,9 @@
                       "neetcode_tags": [
                         "sliding-window"
                       ],
-                      "prerequisites": [],
                       "related": [
+                        "dsa.windows.sliding_window.variable.longest_unique",
+                        "dsa.windows.sliding_window.monotonic.max",
                         "dsa.windows.sliding_window.fixed.max_avg"
                       ],
                       "company_importance": {
@@ -1607,6 +1622,9 @@
                       "estimated_minutes": 25,
                       "interview_frequency": 5,
                       "mastery_weight": 1.5,
+                      "prerequisites": [
+                        "dsa.windows.sliding_window.fixed.max_sum_k"
+                      ],
                       "problem_ids": [
                         "lc-3"
                       ],
@@ -1617,7 +1635,6 @@
                       "neetcode_tags": [
                         "sliding-window"
                       ],
-                      "prerequisites": [],
                       "related": [
                         "dsa.windows.sliding_window.variable.min_window",
                         "dsa.windows.sliding_window.variable.anagrams",
@@ -1657,6 +1674,9 @@
                       "estimated_minutes": 40,
                       "interview_frequency": 5,
                       "mastery_weight": 2.0,
+                      "prerequisites": [
+                        "dsa.windows.sliding_window.variable.longest_unique"
+                      ],
                       "problem_ids": [
                         "lc-76"
                       ],
@@ -1667,7 +1687,6 @@
                       "neetcode_tags": [
                         "sliding-window"
                       ],
-                      "prerequisites": [],
                       "related": [
                         "dsa.windows.sliding_window.variable.longest_unique",
                         "dsa.windows.sliding_window.variable.anagrams",
@@ -1707,6 +1726,9 @@
                       "estimated_minutes": 30,
                       "interview_frequency": 4,
                       "mastery_weight": 1.4,
+                      "prerequisites": [
+                        "dsa.windows.sliding_window.variable.longest_unique"
+                      ],
                       "problem_ids": [
                         "lc-438",
                         "lc-567"
@@ -1717,7 +1739,6 @@
                       "neetcode_tags": [
                         "sliding-window"
                       ],
-                      "prerequisites": [],
                       "related": [
                         "dsa.windows.sliding_window.variable.longest_unique",
                         "dsa.windows.sliding_window.variable.min_window",
@@ -1757,6 +1778,9 @@
                       "estimated_minutes": 25,
                       "interview_frequency": 3,
                       "mastery_weight": 1.2,
+                      "prerequisites": [
+                        "dsa.windows.sliding_window.variable.longest_unique"
+                      ],
                       "problem_ids": [
                         "lc-1004",
                         "lc-424"
@@ -1767,7 +1791,6 @@
                       "neetcode_tags": [
                         "sliding-window"
                       ],
-                      "prerequisites": [],
                       "related": [
                         "dsa.windows.sliding_window.variable.longest_unique",
                         "dsa.windows.sliding_window.variable.min_window",
@@ -1848,6 +1871,9 @@
                       "estimated_minutes": 35,
                       "interview_frequency": 4,
                       "mastery_weight": 1.6,
+                      "prerequisites": [
+                        "dsa.windows.sliding_window.fixed.max_sum_k"
+                      ],
                       "problem_ids": [
                         "lc-239",
                         "lc-1438"
@@ -1859,7 +1885,6 @@
                       "neetcode_tags": [
                         "sliding-window"
                       ],
-                      "prerequisites": [],
                       "related": [],
                       "company_importance": {
                         "google": 3,

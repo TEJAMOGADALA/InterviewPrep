@@ -115,8 +115,12 @@ def test_planner_builds_support_and_core_recommendations_from_roadmap():
     recommendation = asyncio.run(get_today_learning_node("user-1", db=FakeDB(rows)))
 
     assert recommendation is not None
-    assert recommendation["support_track"] == "lld"
+    # The support task should reinforce a topically-related, unlocked node in
+    # the roadmap graph when one exists, rather than jumping straight to an
+    # unrelated cross-track pick (cross-track fallback only applies when no
+    # related candidate qualifies).
     assert recommendation.get("support_node") is not None
+    assert recommendation["support_node"] != recommendation.get("node_id")
 
 
 def test_revision_selection_uses_due_reviews():
@@ -134,7 +138,7 @@ def test_revision_selection_uses_due_reviews():
 def test_mission_engine_uses_learning_recommendation_when_provided():
     mission, _ = build_mission_for_user(
         "user-1",
-        onboarding={"target_companies": ["google"], "self_assessment": {"dsa": 6, "java": 5, "lld": 4, "hld": 4}},
+        onboarding={"current_position": "5+", "target_companies": ["google"], "self_assessment": {"dsa": 6, "java": 5, "lld": 4, "hld": 4}},
         knowledge=[],
         revisions_due=[],
         recent_feedback=[],
@@ -163,7 +167,7 @@ def test_mission_engine_does_not_use_legacy_selection_when_recommendation_is_pro
 
     mission, _ = build_mission_for_user(
         "user-1",
-        onboarding={"target_companies": ["google"], "self_assessment": {"dsa": 6, "java": 5, "lld": 4, "hld": 4}},
+        onboarding={"current_position": "5+", "target_companies": ["google"], "self_assessment": {"dsa": 6, "java": 5, "lld": 4, "hld": 4}},
         knowledge=[],
         revisions_due=[],
         recent_feedback=[],

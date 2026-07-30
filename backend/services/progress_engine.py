@@ -232,9 +232,20 @@ async def seed_knowledge_nodes_from_self_assessment(
 
     now = datetime.now(timezone.utc).isoformat()
     rows = []
-    for track, rating in (self_assessment or {}).items():
+    self_assessment = self_assessment or {}
+    # Seed every roadmap track, not just the ones covered by the onboarding
+    # self-assessment sliders (dsa/java/lld/hld/os/dbms/cn). Tracks the
+    # onboarding UI never asks about (behavioral/projects/resume) used to be
+    # left completely unseeded, which made every one of their nodes look
+    # maximally weak (ranking.py's cold-start default) forever — causing them
+    # to dominate the cross-track recommendation regardless of target
+    # company. A neutral baseline (matching the "5" default used elsewhere
+    # for unrated tracks, e.g. mission_engine.compute_readiness) keeps every
+    # track on equal footing until the learner actually engages with it.
+    for track in roadmap.track_ids():
+        rating = self_assessment.get(track)
         if rating is None:
-            continue
+            rating = 5.0
         fields = score_to_node_fields(float(rating) * 10.0)
         fields["status"] = "in_progress"  # never "mastered" — must not unlock/complete nodes
         for node in roadmap.get_track_learning_nodes(track):

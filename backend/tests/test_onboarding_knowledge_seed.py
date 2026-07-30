@@ -53,8 +53,12 @@ SELF_ASSESSMENT_HIGH_DSA = {
 }
 
 
-def test_seed_initializes_only_the_matching_track_learning_nodes():
-    """DSA slider must only touch dsa nodes, not java/lld/etc (item 6)."""
+def test_seed_covers_every_roadmap_track_independently():
+    """Every roadmap track is seeded, not just the 7 legacy tracks the
+    onboarding self-assessment sliders ask about (item 6) — tracks the UI
+    never rates (behavioral/projects/resume) get a neutral baseline instead
+    of staying permanently unseeded, and a track's slider never leaks into
+    another track's rows."""
     roadmap = get_roadmap()
     db = FakeDB()
 
@@ -68,14 +72,18 @@ def test_seed_initializes_only_the_matching_track_learning_nodes():
         rows_by_track.setdefault(node["track"], []).append(row)
 
     assert inserted == len(db.knowledge_nodes._rows)
-    assert inserted == sum(len(roadmap.get_track_learning_nodes(t)) for t in SELF_ASSESSMENT_LOW_DSA)
-    for track in SELF_ASSESSMENT_LOW_DSA:
+    assert inserted == sum(len(roadmap.get_track_learning_nodes(t)) for t in roadmap.track_ids())
+    for track in roadmap.track_ids():
         assert len(rows_by_track.get(track, [])) == len(roadmap.get_track_learning_nodes(track))
-    # dsa rows reflect the dsa rating (1); every other seeded track reflects
+    # dsa rows reflect the dsa rating (1); every other rated track reflects
     # its own independent rating (5) — a track's slider never leaks into others.
     assert rows_by_track["dsa"] and all(row["confidence"] == 1.0 for row in rows_by_track["dsa"])
     other_track = next(t for t in ("java", "lld", "hld") if rows_by_track.get(t))
     assert all(row["confidence"] == 5.0 for row in rows_by_track[other_track])
+    # Tracks never covered by onboarding sliders still get a neutral baseline.
+    unrated_track = next(t for t in roadmap.track_ids() if t not in SELF_ASSESSMENT_LOW_DSA)
+    assert rows_by_track.get(unrated_track)
+    assert all(row["confidence"] == 5.0 for row in rows_by_track[unrated_track])
 
 
 def test_seed_never_marks_nodes_completed_or_mastered():
@@ -117,12 +125,10 @@ def test_seed_is_idempotent_and_never_overwrites_existing_progress():
     preserved = next(r for r in db.knowledge_nodes._rows if r["node_id"] == existing_node["id"])
     assert preserved["status"] == "completed"
     assert preserved["confidence"] == 9.5
-    # Every other dsa node was still seeded.
-    assert len(db.knowledge_nodes._rows) == len(roadmap.get_track_learning_nodes("dsa")) + len(
-        roadmap.get_track_learning_nodes("java")
-    ) + len(roadmap.get_track_learning_nodes("lld")) + len(roadmap.get_track_learning_nodes("hld")) + len(
-        roadmap.get_track_learning_nodes("operating_systems")
-    ) + len(roadmap.get_track_learning_nodes("dbms")) + len(roadmap.get_track_learning_nodes("computer_networks"))
+    # Every other node across every track was still seeded.
+    assert len(db.knowledge_nodes._rows) == sum(
+        len(roadmap.get_track_learning_nodes(t)) for t in roadmap.track_ids()
+    )
 
 
 def test_planner_input_differs_between_low_and_high_dsa_self_assessment():

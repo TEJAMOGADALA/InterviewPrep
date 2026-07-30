@@ -57,14 +57,34 @@ def _build_support_recommendation(
     """
     Build an adaptive secondary recommendation.
 
-    The support recommendation should prioritize a roadmap node from the learner's
-    weakest non-primary track, if one is available.
+    Prefers a node from the roadmap's own `related` graph for the primary
+    node (same pattern family — real reinforcement, e.g. a sliding-window
+    problem paired with another sliding-window problem) so the support task
+    stays topically connected to what the learner is actually studying
+    today. Falls back to the learner's weakest non-primary track only when
+    no such related, unlocked, incomplete node exists.
     """
 
     if not node:
         return None
 
     primary_track = node.get("track")
+    roadmap = get_roadmap()
+    completed_ids = _completed_node_ids(progress_rows)
+
+    for related in roadmap.related(node.get("id")):
+        related_id = related.get("id")
+        if not related_id or related_id in completed_ids:
+            continue
+        if roadmap.get_learning_node(related_id) is None:
+            continue
+        if not roadmap.is_unlocked(related_id, completed_ids):
+            continue
+        return {
+            "support_track": related.get("track", primary_track),
+            "support_node": related_id,
+        }
+
     candidates = {}
 
     for row in progress_rows:
