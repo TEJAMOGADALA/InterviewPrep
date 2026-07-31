@@ -280,12 +280,27 @@ async def get_node_detail(node_id: str, user=Depends(get_current_user)):
     ).sort("ts", -1).limit(10)
     activity = await activity_cur.to_list(length=10)
 
-    # Company importance
-    companies = roadmap.tree().get("companies", [])
-    company_importance = {c: roadmap.company_importance(node_id, c) for c in companies}
-
     # Track
     track = roadmap.find_track(node_id)
+
+    # Company importance — for display we blend node-level and track-level
+    # signals so topics without differentiated per-node data still surface the
+    # track's known company bias. This is a *view-only* blend; the ranking
+    # engine keeps consuming `roadmap.company_importance()` unchanged.
+    companies = roadmap.tree().get("companies", [])
+    node_ci = (node.get("company_importance") or {}) if isinstance(node, dict) else {}
+    track_ci = (track.get("company_importance") or {}) if track else {}
+    company_importance = {}
+    for c in companies:
+        nv = int(node_ci.get(c, 0) or 0)
+        tv = int(track_ci.get(c, 0) or 0)
+        if nv and tv:
+            # Weighted blend rounded to nearest integer — surfaces track
+            # bias while still respecting explicit per-node overrides.
+            blended = round(0.65 * nv + 0.35 * tv)
+        else:
+            blended = nv or tv
+        company_importance[c] = max(0, min(5, int(blended)))
 
     return {
         "node": _shape_node(node, node_progress),

@@ -18,7 +18,6 @@ import { cn } from '@/lib/utils';
 import { useMentorContext } from '@/contexts/MentorContext';
 import { ProgressBar } from '@/components/progress/ProgressBar';
 import { WhyThisMissionDialog } from '@/components/mission/WhyThisMissionDialog';
-import { WeeklyActivityWidget } from '@/components/dashboard/WeeklyActivityWidget';
 
 const ACTIVITY_META = {
   mission_completed:  { dot: 'bg-emerald-400',  label: 'Mission completed' },
@@ -556,11 +555,6 @@ export default function MissionControl() {
           )}
           <p className="mt-4 text-xs text-muted-foreground">Spaced repetition · 1d → 3d → 7d → 14d → 30d → 60d (confidence-adjusted).</p>
         </GlassCard>
-
-        {/* Weekly Activity — populated from real activity events (RC1.3) */}
-        <div className="md:col-span-3 lg:col-span-4">
-          <WeeklyActivityWidget />
-        </div>
 
         {/* Knowledge Progress removed from Mission Control */}
 

@@ -1,14 +1,18 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { NAV_ITEMS } from '@/config/navigation';
 import { Logo } from '@/components/common/Logo';
 import { APP_SHELL } from '@/constants/testIds';
 import { cn } from '@/lib/utils';
 import { useUILayout } from '@/contexts/UILayoutContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { UserAvatar } from '@/components/common/UserAvatar';
 
 export function Sidebar() {
   const { sidebarCollapsed } = useUILayout();
+  const { user } = useAuth();
+
   return (
     <aside
       data-testid={APP_SHELL.sidebar}
@@ -81,16 +85,47 @@ export function Sidebar() {
         </nav>
       </TooltipProvider>
 
-      {!sidebarCollapsed && (
-        <div className="px-4 py-5 border-t hairline">
-          <div className="rounded-xl border hairline bg-foreground/[0.02] p-3">
-            <div className="overline mb-1">Preview build</div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              You are on <span className="text-foreground">Foundation RC1.3</span>. Mission engine active.
-            </p>
-          </div>
-        </div>
-      )}
+      {/* User profile block — shows the uploaded profile picture (or initials
+          fallback) so the sidebar always reflects the signed-in user. Stays in
+          sync with the Topbar avatar because both consume the same
+          `useAuth().user` state. */}
+      <div className={cn('border-t shrink-0 transition-[padding] duration-300', sidebarCollapsed ? 'p-2' : 'p-3')} style={{ borderColor: 'var(--hairline)' }}>
+        <TooltipProvider delayDuration={200}>
+          {sidebarCollapsed ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  to="/app/profile"
+                  data-testid={APP_SHELL.sidebarAvatar}
+                  className="flex items-center justify-center rounded-lg hover:bg-foreground/[0.04] transition-colors p-1.5"
+                  aria-label="Open profile"
+                >
+                  <UserAvatar user={user} size="md" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="font-medium">
+                {user?.name || 'Profile'}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <Link
+              to="/app/profile"
+              data-testid={APP_SHELL.sidebarAvatar}
+              className="flex items-center gap-3 rounded-lg border hairline bg-foreground/[0.02] hover:bg-foreground/[0.04] transition-colors px-3 py-2.5 group"
+            >
+              <UserAvatar user={user} size="md" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate group-hover:text-foreground">
+                  {user?.name || 'Profile'}
+                </div>
+                <div className="text-[11px] text-muted-foreground truncate">
+                  {user?.email || 'Update your profile'}
+                </div>
+              </div>
+            </Link>
+          )}
+        </TooltipProvider>
+      </div>
     </aside>
   );
 }

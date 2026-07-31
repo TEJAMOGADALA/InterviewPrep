@@ -10,6 +10,7 @@ import { Progress } from '@/components/ui/progress';
 import { dashboardService, roadmapService } from '@/services/mission.service';
 import api from '@/services/api';
 import { cn } from '@/lib/utils';
+import { WeeklyActivityWidget } from '@/components/dashboard/WeeklyActivityWidget';
 
 /**
  * Command Analytics — real dashboard sourced from existing endpoints:
@@ -43,26 +44,10 @@ function StatCard({ label, value, hint, icon: Icon, accent = 'primary' }) {
   );
 }
 
-function WeekHeatmap({ grid = [] }) {
-  const dayLetters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-  return (
-    <div>
-      <div className="flex gap-1.5">
-        {grid.map((day, i) => (
-          <div key={i} className="flex-1 text-center">
-            <div className={cn(
-              'h-10 rounded-md border transition-colors',
-              day.active
-                ? 'bg-primary/25 border-primary/40'
-                : 'bg-white/[0.02] border-white/[0.06]',
-            )} title={day.date} />
-            <div className="text-[10px] text-muted-foreground mt-1 font-mono">{dayLetters[i]}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+function WeekHeatmap() { return null; }
+// Weekly heatmap removed in RC1.3 — replaced by <WeeklyActivityWidget />
+// which sources the same underlying activity data.
+// (Kept the stub above so this file's imports/exports remain stable.)
 
 function TopicScoreBar({ topic }) {
   const score = Math.round(topic.score || 0);
@@ -201,14 +186,11 @@ export default function CommandAnalytics() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Weekly heatmap */}
-        <GlassCard className="p-4 lg:col-span-2">
-          <div className="flex items-center gap-2 mb-3">
-            <Clock className="h-4 w-4 text-primary" />
-            <h3 className="font-display text-sm font-semibold tracking-tight">This Week's Activity</h3>
-          </div>
-          <WeekHeatmap grid={streak.week_grid || []} />
-        </GlassCard>
+        {/* Weekly activity — reuses the shared WeeklyActivityWidget so both
+            Mission Control (removed) and Command Analytics stay in sync. */}
+        <div className="lg:col-span-2">
+          <WeeklyActivityWidget />
+        </div>
 
         {/* Roadmap progress */}
         <GlassCard className="p-4">

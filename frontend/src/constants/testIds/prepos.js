@@ -29,6 +29,7 @@ export const APP_SHELL = {
   sidebar: 'app-sidebar',
   sidebarLink: 'app-sidebar-link',
   sidebarToggle: 'app-sidebar-toggle',
+  sidebarAvatar: 'app-sidebar-avatar',
   topbar: 'app-topbar',
   globalSearch: 'topbar-global-search',
   cmdKButton: 'topbar-cmdk-button',

@@ -28,7 +28,9 @@ const BUCKET_LABEL = {
 };
 
 function starLine(count) {
-  return '★★★★★'.slice(0, count) + '☆☆☆☆☆'.slice(0, 5 - count);
+  const filled = Math.max(0, Math.min(5, count | 0));
+  const empty = 5 - filled;
+  return '★'.repeat(filled) + '☆'.repeat(empty);
 }
 
 export default function DeepTopicPage() {
