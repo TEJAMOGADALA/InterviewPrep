@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -11,7 +11,8 @@ import { format, formatDistanceToNow, parseISO } from 'date-fns';
 import { GlassCard } from '@/components/common/GlassCard';
 import { DASHBOARD } from '@/constants/testIds';
 import { useAuth } from '@/contexts/AuthContext';
-import { dashboardService, missionService, roadmapService } from '@/services/mission.service';
+import { useDashboard, useRoadmapSummary } from '@/queries/hooks';
+import { useToggleTask, useCompleteMission, useSkipMission } from '@/queries/mutations';
 import { TARGET_COMPANIES } from '@/config/companies';
 import { formatApiError } from '@/utils/formatApiError';
 import { cn } from '@/lib/utils';
@@ -60,69 +61,52 @@ function taskKindIcon(kind) {
 
 export default function MissionControl() {
   const { user } = useAuth();
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [busyTask, setBusyTask] = useState(null);
+  // RC1.3.2B · dashboard + roadmap-summary are now React Query
+  // subscriptions. Every dashboard consumer (Topbar, this page,
+  // Analytics in Phase 2) shares the same cache entry, so a mission
+  // toggle immediately propagates without a manual reload.
+  const { data, isLoading: dashboardLoading } = useDashboard();
+  const { data: summary } = useRoadmapSummary();
+  const loading = dashboardLoading && !data;
+
+  // Mutation hooks — optimistic, with rollback + invalidation baked in.
+  const missionId = data?.mission?.id;
+  const toggleTask = useToggleTask(missionId);
+  const completeMissionM = useCompleteMission(missionId);
+  const skipMissionM = useSkipMission(missionId);
+
   const [busyAction, setBusyAction] = useState(null);
   const [expandedDomain, setExpandedDomain] = useState(null);
-  const [summary, setSummary] = useState(null);
   const navigate = useNavigate();
   const mentor = useMentorContext();
 
-  const load = useCallback(async () => {
-    try {
-      const [d, s] = await Promise.all([
-        dashboardService.get(),
-        roadmapService.summary().catch(() => null),
-      ]);
-      setData(d);
-      if (s) setSummary(s);
-    } catch (err) {
-      toast.error(formatApiError(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
+  // Which task, if any, is currently mid-flight. Derived from the
+  // toggle mutation so we don't need to track it in local state.
+  const busyTask = toggleTask.isPending ? toggleTask.variables : null;
 
   // knowledge tree removed from Mission Control (frontend-only redesign)
 
-  const onToggleTask = async (taskId) => {
-    if (!data) return;
-    setBusyTask(taskId);
-    try {
-      await missionService.toggleTask(data.mission.id, taskId);
-      await load();
-    } catch (err) {
-      toast.error(formatApiError(err));
-    } finally {
-      setBusyTask(null);
-    }
+  const onToggleTask = (taskId) => {
+    if (!missionId) return;
+    toggleTask.mutate(taskId);
   };
 
-  const onCompleteMission = async () => {
-    if (!data) return;
+  const onCompleteMission = () => {
+    if (!missionId) return;
     setBusyAction('complete');
-    try {
-      await missionService.completeMission(data.mission.id);
-      toast.success('Mission completed. Streak updated.');
-      await load();
-    } catch (err) {
-      toast.error(formatApiError(err));
-    } finally { setBusyAction(null); }
+    completeMissionM.mutate(undefined, {
+      onSuccess: () => toast.success('Mission completed. Streak updated.'),
+      onSettled: () => setBusyAction(null),
+    });
   };
 
-  const onSkipMission = async () => {
-    if (!data) return;
+  const onSkipMission = () => {
+    if (!missionId) return;
     setBusyAction('skip');
-    try {
-      await missionService.skipMission(data.mission.id);
-      toast('Mission skipped.', { icon: <SkipForward className="h-4 w-4" /> });
-      await load();
-    } catch (err) {
-      toast.error(formatApiError(err));
-    } finally { setBusyAction(null); }
+    skipMissionM.mutate(undefined, {
+      onSuccess: () => toast('Mission skipped.', { icon: <SkipForward className="h-4 w-4" /> }),
+      onSettled: () => setBusyAction(null),
+    });
   };
 
   const onOpenKnowledgeNode = (nodeId) => {

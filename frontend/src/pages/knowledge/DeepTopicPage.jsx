@@ -10,7 +10,11 @@ import { GlassCard } from '@/components/common/GlassCard';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
-import { roadmapService } from '@/services/mission.service';
+import { useRoadmapNode } from '@/queries/hooks';
+import {
+  useSetNodeStatus, useSetNodeConfidence,
+  useRecordAttempt, useSaveNodeNotes,
+} from '@/queries/mutations';
 import { userService } from '@/services/auth.service';
 import { formatApiError } from '@/utils/formatApiError';
 import { TARGET_COMPANIES } from '@/config/companies';
@@ -36,13 +40,24 @@ function starLine(count) {
 export default function DeepTopicPage() {
   const { nodeId } = useParams();
   const navigate = useNavigate();
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+
+  // RC1.3.2B · The heavy `load()` + `setLoading(true)` cycle is gone.
+  // React Query owns the cache; optimistic mutations patch it
+  // instantly so this page no longer flickers back through the
+  // Loading skeleton on save.
+  const { data, isLoading } = useRoadmapNode(nodeId);
   const [notes, setNotes] = useState('');
-  const [savingNotes, setSavingNotes] = useState(false);
   const [confidence, setConfidence] = useState([0]);
-  const [savingConf, setSavingConf] = useState(false);
   const [targetCompanies, setTargetCompanies] = useState([]);
+
+  // Sync local edit-buffers with server data whenever the node changes.
+  // Notes + confidence are edit-in-place fields, so we mirror them into
+  // local state; mutations still write through the shared cache.
+  useEffect(() => {
+    if (!data) return;
+    setNotes(data.notes || '');
+    setConfidence([data.node?.progress?.confidence || 0]);
+  }, [data, nodeId]);
 
   useEffect(() => {
     // Load target companies so we can put them first in the Interview
@@ -53,42 +68,26 @@ export default function DeepTopicPage() {
       .catch(() => {});
   }, []);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const d = await roadmapService.node(nodeId);
-      setData(d);
-      setNotes(d.notes || '');
-      setConfidence([d.node.progress?.confidence || 0]);
-    } catch (e) {
-      toast.error(formatApiError(e));
-    } finally {
-      setLoading(false);
-    }
+  const setStatusM = useSetNodeStatus();
+  const setConfidenceM = useSetNodeConfidence();
+  const recordAttemptM = useRecordAttempt();
+  const saveNotesM = useSaveNodeNotes();
+  const savingConf = setConfidenceM.isPending;
+  const savingNotes = saveNotesM.isPending;
+
+  const saveNotes = () => {
+    saveNotesM.mutate({ nodeId, notes }, {
+      onSuccess: () => toast.success('Notes saved.'),
+    });
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [nodeId]);
-
-  const saveNotes = async () => {
-    setSavingNotes(true);
-    try {
-      await roadmapService.saveNotes(nodeId, notes);
-      toast.success('Notes saved.');
-    } catch (e) { toast.error(formatApiError(e)); }
-    finally { setSavingNotes(false); }
+  const saveConfidence = () => {
+    setConfidenceM.mutate({ nodeId, value: confidence[0] }, {
+      onSuccess: () => toast.success('Confidence updated.'),
+    });
   };
 
-  const saveConfidence = async () => {
-    setSavingConf(true);
-    try {
-      await roadmapService.setConfidence(nodeId, confidence[0]);
-      toast.success('Confidence updated.');
-      await load();
-    } catch (e) { toast.error(formatApiError(e)); }
-    finally { setSavingConf(false); }
-  };
-
-  if (loading || !data) {
+  if (isLoading || !data) {
     return (
       <div className="py-24 flex flex-col items-center gap-3 text-muted-foreground">
         <Loader2 className="h-5 w-5 animate-spin" />
@@ -190,18 +189,18 @@ export default function DeepTopicPage() {
             {/* Quick actions — attempt + status transitions */}
             <div className="mt-5 flex flex-wrap items-center gap-2" data-testid="topic-quick-actions">
               <Button
-                onClick={async () => {
+                onClick={() => {
                   const raw = window.prompt('Time spent on this attempt in minutes (leave blank to skip):', '');
                   const mins = raw ? Math.max(0, parseInt(raw, 10) || 0) : null;
-                  try {
-                    await roadmapService.recordAttempt(node.id, mins || null);
-                    toast.success(mins ? `Logged attempt (${mins}m).` : 'Attempt logged.');
-                    load();
-                  } catch (e) { toast.error(formatApiError(e)); }
+                  recordAttemptM.mutate(
+                    { nodeId: node.id, minutes: mins || null },
+                    { onSuccess: () => toast.success(mins ? `Logged attempt (${mins}m).` : 'Attempt logged.') },
+                  );
                 }}
                 data-testid="topic-record-attempt"
                 variant="secondary"
                 className="h-8 text-xs"
+                disabled={recordAttemptM.isPending}
               >
                 <Clock className="h-3.5 w-3.5 mr-1.5" />
                 Record Attempt
@@ -210,15 +209,15 @@ export default function DeepTopicPage() {
                 <button
                   key={s}
                   type="button"
-                  onClick={async () => {
-                    try {
-                      await roadmapService.setStatus(node.id, s);
-                      toast.success(`Marked as ${s.replace('_', ' ')}.`);
-                      load();
-                    } catch (e) { toast.error(formatApiError(e)); }
+                  onClick={() => {
+                    setStatusM.mutate(
+                      { nodeId: node.id, status: s },
+                      { onSuccess: () => toast.success(`Marked as ${s.replace('_', ' ')}.`) },
+                    );
                   }}
                   data-testid={`topic-mark-${s}`}
-                  className="text-[11px] font-mono uppercase tracking-wider px-2.5 py-1 rounded-full border bg-white/[0.03] border-white/[0.08] text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+                  disabled={setStatusM.isPending}
+                  className="text-[11px] font-mono uppercase tracking-wider px-2.5 py-1 rounded-full border bg-white/[0.03] border-white/[0.08] text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-60"
                 >
                   Mark {s.replace('_', ' ')}
                 </button>

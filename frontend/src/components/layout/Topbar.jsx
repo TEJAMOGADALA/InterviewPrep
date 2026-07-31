@@ -1,5 +1,4 @@
 import { Bell, Search, LogOut, User as UserIcon, Settings, Flame, Menu, PanelLeftClose, PanelLeft, Moon, Sun, Monitor } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCommandPalette } from '@/contexts/CommandPaletteContext';
@@ -12,7 +11,7 @@ import {
   DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import { Sparkles } from 'lucide-react';
-import { dashboardService } from '@/services/mission.service';
+import { useDashboard } from '@/queries/hooks';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { cn } from '@/lib/utils';
 
@@ -22,17 +21,14 @@ export function Topbar() {
   const { toggle: toggleAIPanel } = useAIPanel();
   const { sidebarCollapsed, toggleSidebar } = useUILayout();
   const { theme, setTheme, resolvedTheme } = useTheme();
-  const [streak, setStreak] = useState(null);
+  // RC1.3.2B · Global streak state:
+  // Topbar and MissionControl now share the same React-Query cache
+  // entry for `qk.dashboard()`, so completing a mission immediately
+  // refreshes the streak here — no `useEffect(..., [])` snapshot,
+  // no manual refetch, no page reload.
+  const { data: dashboard } = useDashboard();
+  const streak = dashboard?.streak?.current ?? null;
   const navigate = useNavigate();
-
-  useEffect(() => {
-    let mounted = true;
-    dashboardService.get().then((d) => {
-      if (!mounted) return;
-      if (d?.streak?.current != null) setStreak(d.streak.current);
-    }).catch(() => {});
-    return () => { mounted = false; };
-  }, []);
 
   const ThemeIcon = theme === 'system' ? Monitor : resolvedTheme === 'light' ? Sun : Moon;
 
