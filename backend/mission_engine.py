@@ -17,6 +17,9 @@ from problem_bank import (
     problems_by_pattern,
 )
 from roadmap import get_roadmap, topic_meta, pattern_for_node
+from services.learning_engine.composition import (
+    CompositionPlan, MissionConstraints, plan_composition, validate_mission,
+)
 
 
 # --------------------- Content library ---------------------
@@ -337,6 +340,7 @@ def build_mission_for_user(
     knowledge_nodes: Optional[Dict[str, dict]] = None,
     learning_recommendation: Optional[dict] = None,
     pacing_state: Optional[dict] = None,
+    composition_plan: Optional[CompositionPlan] = None,
 ) -> tuple[DailyMission, dict]:
     """Return (mission, adjustment_meta). adjustment_meta describes adaptive decisions.
 
@@ -350,6 +354,14 @@ def build_mission_for_user(
     don't pass it get the exact same mission shape as before. When urgency is
     high, study hours still cap the daily workload; only how densely that
     same time budget is used changes.
+
+    RC1.3.2A ``composition_plan`` (services/learning_engine/composition.py)
+    is optional. When None, the historical inline heuristics run — the
+    function is byte-identical to before this parameter existed. When
+    provided, it drives practice_count, revision cap, supporting/core
+    inclusion, and the mission is validated against the plan; the
+    ``adjustment`` return dict carries the validator's result so callers
+    can persist it into ``mission_adjustments`` for audit.
     """
     ds = ds or today_date_str()
     rng = _seeded_random(user_id, ds)
@@ -375,10 +387,7 @@ def build_mission_for_user(
         base_difficulty = learning_recommendation.get("difficulty") or "medium"
         primary_node_id = learning_recommendation.get("node_id")
     else:
-        # Legacy compatibility fallback only: if the Learning Engine has not yet
-        # provided a canonical recommendation, preserve existing behavior here.
-        # This path should not be used by production mission generation once the
-        # Learning Recommendation pipeline is fully canonicalized.
+        # Legacy compatibility fallback only.
         focus_topic, subtopic, base_difficulty = select_primary_topic(
             onboarding, knowledge, target_companies, analysis, mode, rng, knowledge_nodes,
         )
@@ -386,31 +395,26 @@ def build_mission_for_user(
 
     meta = TOPIC_META[focus_topic]
 
-    # Calibrate difficulty to the learner's declared experience band and (item 4)
-    # their actual confidence on today's node, sourced from the same Learning
-    # Engine insight the recommendation already carries — never a second,
-    # independently-computed confidence signal. The roadmap node's own
-    # authored difficulty is still the base signal; this only clamps it into
-    # a sane, confidence-aware range for the learner.
     position = (onboarding or {}).get("current_position", "0-1")
     node_confidence = None
     if learning_recommendation is not None:
         node_confidence = (learning_recommendation.get("insight") or {}).get("confidence")
     base_difficulty = _clamp_difficulty_to_experience(base_difficulty, position, node_confidence)
 
-    # Practice count scales with hours
-    if daily_hours >= 3:
-        practice_count = 3
-    elif daily_hours >= 1.5:
-        practice_count = 2
-    else:
-        practice_count = 1
-
-    # Interview urgency: same declared daily-hours capacity used more
-    # aggressively (denser mission, not a longer one) when the deadline is
-    # tight. Study hours remain the hard cap on estimated_duration_minutes.
-    if urgency >= 0.7 and daily_hours >= 1.5:
-        practice_count = min(practice_count + 1, 4)
+    # ---- Composition plan (RC1.3.2A) --------------------------------------
+    # Prefer the caller-supplied plan (planner.py orchestrator computes it
+    # with the same signals). Fall back to computing it inline so this
+    # function remains callable in isolation (tests, legacy callers).
+    if composition_plan is None:
+        composition_plan = plan_composition(
+            pacing_state=pacing_state,
+            position=position,
+            revisions_due_count=len(revisions_due or []),
+            primary_track=focus_topic,
+            primary_confidence=node_confidence,
+            extra_practice_yesterday=extra_practice_count_yesterday,
+        )
+    practice_count = composition_plan.practice_count
 
     tasks: List[MissionTask] = []
     inserted_prereqs: List[str] = []
@@ -526,9 +530,12 @@ def build_mission_for_user(
             # revert to legacy TOPIC_META when roadmap-backed core selection fails.
             pass
 
-    # Revision tasks (from spaced-repetition queue). Critical pacing (interview
-    # very close) allows one extra revision slot — still capped, still realistic.
-    revision_cap = 3 if pacing_mode == "critical" else 2
+    # Revision tasks (from spaced-repetition queue). Revision cap is now
+    # sourced from the composition plan (which already applied the
+    # critical-mode +1 slot) rather than recomputed here.
+    revision_cap = composition_plan.revision_slots if composition_plan else (
+        3 if pacing_mode == "critical" else 2
+    )
     revision_task_ids: List[str] = []
     for rev in revisions_due[:revision_cap]:
         rt = MissionTask(
@@ -573,6 +580,25 @@ def build_mission_for_user(
         recommendation_insight=learning_recommendation.get("insight") if learning_recommendation else None,
     )
 
+    # ---- Internal validation (RC1.3.2A) -----------------------------------
+    # Never raises. If severity == 'regenerate' the CALLER
+    # (routes_missions._generate_today_mission) is responsible for retrying
+    # with a different primary node — we surface the hint via
+    # ``adjustment["validation"]`` and let the caller decide.
+    task_dicts = [t.model_dump() if hasattr(t, "model_dump") else dict(t) for t in tasks]
+    validation = validate_mission(task_dicts, composition_plan)
+
+    # Fold composition + validation into the recommendation insight so
+    # every downstream consumer (Mission Control, AI Mentor) can render
+    # them without another network round-trip.
+    if mission.recommendation_insight is not None:
+        mission.recommendation_insight.setdefault(
+            "composition", composition_plan.to_dict()
+        )
+        mission.recommendation_insight.setdefault(
+            "validation", validation.to_dict()
+        )
+
     adjustment = {
         "mode": mode,
         "reason": _mode_reason(mode, analysis, extra_practice_count_yesterday),
@@ -581,6 +607,8 @@ def build_mission_for_user(
         "advance": mode == "advance",
         "pacing_mode": pacing_mode,
         "urgency": urgency,
+        "composition": composition_plan.to_dict(),
+        "validation": validation.to_dict(),
     }
     return mission, adjustment
 

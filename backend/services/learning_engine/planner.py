@@ -1,10 +1,17 @@
 """Orchestrator for the additive learning engine."""
 from __future__ import annotations
 
-from typing import Iterable, Optional
+from typing import Iterable, List, Optional
 
 from roadmap import get_roadmap
 from services.learning_engine.builder import build_learning_recommendation
+from services.learning_engine.composition import (
+    CompositionPlan, ContinuityChain, chain_from_history,
+    continuity_score, plan_composition,
+)
+from services.learning_engine.foresight import (
+    estimate_company_readiness_gain, likely_next_topics,
+)
 from services.learning_engine.insight import build_recommendation_insight
 from services.learning_engine.pacing import forecast_completion
 from services.learning_engine.ranking import rank_learning_nodes, score_learning_node
@@ -197,6 +204,10 @@ async def get_today_learning_node(
     target_companies: Optional[Iterable[str]] = None,
     completed_dates: Optional[Iterable[str]] = None,
     recent_node_ids: Optional[Iterable[str]] = None,
+    onboarding: Optional[dict] = None,
+    knowledge_rows: Optional[list] = None,
+    recent_completions: Optional[Iterable[dict]] = None,
+    skip_node_ids: Optional[Iterable[str]] = None,
 ) -> Optional[dict]:
     """Return the best learning recommendation for the user.
 
@@ -222,11 +233,24 @@ async def get_today_learning_node(
     learner was recommended in their last few missions. Defaults to None (no
     history / no-op), which applies zero recency penalty in `ranking.py` —
     identical ranking to before this parameter existed.
+
+    RC1.3.2A additions (all optional; every existing caller keeps identical
+    output when not passing them):
+
+    * ``onboarding`` — enables the per-company readiness estimate.
+    * ``knowledge_rows`` — enables the per-company readiness estimate.
+    * ``recent_completions`` — enables learning continuity signal.
+    * ``skip_node_ids`` — used by the orchestrator on a retry attempt
+      after the validator flagged the first pick.
     """
     progress_rows = await _load_progress_rows(user_id, db)
     pacing_state = pacing_state or {}
     urgency = float(pacing_state.get("urgency", 0.0))
     progress_map = {row.get("node_id"): row for row in progress_rows if row.get("node_id")}
+    skip = set(skip_node_ids or ())
+
+    # ---- Continuity chain from recent history ---------------------------
+    chain = chain_from_history(recent_completions or [])
 
     def _attach_insight(node: dict, progress: dict) -> dict:
         breakdown = score_learning_node(
@@ -234,13 +258,31 @@ async def get_today_learning_node(
             progress_map=progress_map, recent_node_ids=recent_node_ids,
         )
         forecast = forecast_completion(pacing_state, completed_dates=completed_dates)
+        cont = continuity_score(node, chain)
+        # LIKELY next — filter out anything the learner already
+        # completed to keep the preview honest.
+        completed_ids = _completed_node_ids(progress_rows)
+        likely = likely_next_topics(node.get("id"), completed_ids=completed_ids)
+        # Readiness ESTIMATE — only when we have the inputs to compute it
+        # honestly. Never fabricates.
+        readiness_est = None
+        if onboarding is not None and knowledge_rows is not None:
+            readiness_est = estimate_company_readiness_gain(
+                node,
+                onboarding=onboarding,
+                knowledge_rows=knowledge_rows,
+                target_companies=target_companies or [],
+                difficulty=(node.get("difficulty") or "medium"),
+            )
         return build_recommendation_insight(
             node, score_breakdown=breakdown, target_companies=target_companies,
             pacing_state=pacing_state, forecast=forecast,
+            continuity=cont, likely_next_topics=likely,
+            readiness_delta_estimate=readiness_est,
         )
 
     revision = get_highest_priority_revision(user_id, progress_rows=progress_rows)
-    if revision is not None:
+    if revision is not None and revision.get("node_id") not in skip:
         roadmap = get_roadmap()
         node = roadmap.get(revision.get("node_id"))
         if node is not None:
@@ -252,7 +294,9 @@ async def get_today_learning_node(
                 insight=_attach_insight(node, revision),
             )
 
-    unlocked_nodes = get_unlocked_nodes(progress_rows)
+    unlocked_nodes = [
+        n for n in get_unlocked_nodes(progress_rows) if n.get("id") not in skip
+    ]
     if not unlocked_nodes:
         return None
 
@@ -263,7 +307,33 @@ async def get_today_learning_node(
     if not ranked_nodes:
         return None
 
+    # Continuity tie-break: when the top two candidates are within 5% of
+    # each other on the scalar score, prefer the one that keeps the
+    # learner on the same topic/module as their last completion. Never
+    # applied when the top candidate is already a strong winner.
     top_node = ranked_nodes[0]
+    if len(ranked_nodes) > 1 and chain.last_track_id:
+        top_breakdown = score_learning_node(
+            top_node, progress_map.get(top_node.get("id"), {}),
+            target_companies=target_companies, urgency=urgency,
+            progress_map=progress_map, recent_node_ids=recent_node_ids,
+        )
+        top_score = top_breakdown.get("total_score", 0.0) or 0.0
+        for candidate in ranked_nodes[1:4]:
+            cb = score_learning_node(
+                candidate, progress_map.get(candidate.get("id"), {}),
+                target_companies=target_companies, urgency=urgency,
+                progress_map=progress_map, recent_node_ids=recent_node_ids,
+            )
+            cand_score = cb.get("total_score", 0.0) or 0.0
+            if top_score <= 0 or cand_score / top_score < 0.95:
+                continue
+            top_cont = continuity_score(top_node, chain)
+            cand_cont = continuity_score(candidate, chain)
+            if cand_cont.get("distance", 4) < top_cont.get("distance", 4):
+                top_node = candidate
+                break
+
     top_progress = progress_map.get(top_node.get("id"), {})
     return build_learning_recommendation(
         top_node,

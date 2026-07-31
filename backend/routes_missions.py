@@ -258,13 +258,30 @@ async def _generate_today_mission(db, user_id: str) -> DailyMission:
         remaining_curriculum,
     )
 
-    learning_recommendation = await get_today_learning_node(
-        user_id, db=db, pacing_state=pacing_state,
-        target_companies=onboarding.get("target_companies"),
-        completed_dates=[row.get("completion_date") for row in knowledge_node_rows if row.get("completion_date")],
-        recent_node_ids=recent_node_ids,
+    # ---- Learning recommendation with continuity + readiness estimate ----
+    # `recent_completions` feeds continuity_score; sorted newest-first so
+    # `chain_from_history` picks up yesterday's last touched node.
+    recent_completions = sorted(
+        [row for row in knowledge_node_rows if row.get("completion_date")],
+        key=lambda r: r.get("completion_date") or "",
+        reverse=True,
     )
 
+    async def _pick_learning_recommendation(skip_ids=None):
+        return await get_today_learning_node(
+            user_id, db=db, pacing_state=pacing_state,
+            target_companies=onboarding.get("target_companies"),
+            completed_dates=[row.get("completion_date") for row in knowledge_node_rows if row.get("completion_date")],
+            recent_node_ids=recent_node_ids,
+            onboarding=onboarding,
+            knowledge_rows=knowledge,
+            recent_completions=recent_completions,
+            skip_node_ids=skip_ids,
+        )
+
+    learning_recommendation = await _pick_learning_recommendation()
+
+    # ---- Build mission (first attempt) ------------------------------------
     mission, adjustment = build_mission_for_user(
         user_id, onboarding, knowledge, revisions_due,
         recent_feedback=recent_feedback,
@@ -273,6 +290,31 @@ async def _generate_today_mission(db, user_id: str) -> DailyMission:
         learning_recommendation=learning_recommendation,
         pacing_state=pacing_state,
     )
+
+    # ---- Regenerate once if validator flagged a hard failure --------------
+    validation = adjustment.get("validation") or {}
+    if validation.get("severity") == "regenerate":
+        skip = set(validation.get("hint_skip_node_ids") or [])
+        primary_id = (learning_recommendation or {}).get("node_id")
+        if primary_id:
+            skip.add(primary_id)
+        alt = await _pick_learning_recommendation(skip_ids=skip)
+        if alt is not None:
+            mission_retry, adjustment_retry = build_mission_for_user(
+                user_id, onboarding, knowledge, revisions_due,
+                recent_feedback=recent_feedback,
+                extra_practice_count_yesterday=extra_yesterday,
+                knowledge_nodes=knowledge_nodes,
+                learning_recommendation=alt,
+                pacing_state=pacing_state,
+            )
+            retry_severity = (adjustment_retry.get("validation") or {}).get("severity")
+            # Only accept the retry if it's strictly better than the first.
+            if retry_severity in ("ok", "warn"):
+                mission, adjustment = mission_retry, adjustment_retry
+                adjustment["validation"]["regenerated"] = True
+                adjustment["validation"].setdefault("previous_issues", validation.get("issues", []))
+
     await db.daily_missions.insert_one(mission.model_dump())
     await _attach_problems_to_mission(db, mission)
 
@@ -283,6 +325,8 @@ async def _generate_today_mission(db, user_id: str) -> DailyMission:
         detected_weaknesses=adjustment["detected_weaknesses"],
         inserted_prerequisites=adjustment["inserted_prerequisites"],
         advance=adjustment["advance"],
+        composition=adjustment.get("composition"),
+        validation=adjustment.get("validation"),
     )
     await db.mission_adjustments.insert_one(adj.model_dump())
 

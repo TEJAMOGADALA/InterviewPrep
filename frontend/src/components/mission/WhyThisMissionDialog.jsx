@@ -1,4 +1,4 @@
-import { Info, Building2, TrendingDown, Target, Clock, Sparkles, Zap, ShieldCheck, Route } from 'lucide-react';
+import { Info, Building2, TrendingDown, Target, Clock, Sparkles, Zap, ShieldCheck, Route, ArrowRight, Waypoints } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
 } from '@/components/ui/dialog';
@@ -61,6 +61,13 @@ export function WhyThisMissionDialog({ insight, missionTitle, focusArea }) {
 
   const sortedCompanies = Object.entries(perCompany)
     .sort((a, b) => (b[1] || 0) - (a[1] || 0));
+
+  // RC1.3.2A · additive planner signals — render only when the backend
+  // populates them so this component stays backwards-compatible.
+  const composition = insight.composition;
+  const continuity = insight.continuity;
+  const likelyNext = Array.isArray(insight.likely_next_topics) ? insight.likely_next_topics : [];
+  const readiness = insight.readiness_delta_estimate;
 
   return (
     <Dialog>
@@ -167,6 +174,95 @@ export function WhyThisMissionDialog({ insight, missionTitle, focusArea }) {
                   {h}
                 </Badge>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* RC1.3.2A · Likely Next Topics.
+            Deliberately named "Likely" (not "Future Unlocks") because future
+            missions remain adaptive — this is a preview, not a guarantee. */}
+        {likelyNext.length > 0 && (
+          <div className="mt-4 rounded-lg border hairline bg-foreground/[0.02] p-4">
+            <div className="overline mb-2 flex items-center gap-2">
+              <Waypoints className="h-3.5 w-3.5 text-primary" />
+              Likely next topics
+              <span className="text-[10px] font-mono normal-case tracking-normal text-muted-foreground/80 ml-1">
+                · planner preview, not guaranteed
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {likelyNext.map((t, i) => (
+                <div key={t.node_id || i} className="flex items-center gap-2 text-sm">
+                  <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 border border-primary/25 text-primary/90 shrink-0">
+                    {t.when || 'next'}
+                  </span>
+                  <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                  <span className="flex-1 min-w-0 truncate text-foreground/95">{t.label}</span>
+                  {t.why && (
+                    <span className="hidden sm:inline text-[11px] text-muted-foreground truncate max-w-[45%]">
+                      {t.why}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* RC1.3.2A · Company Readiness — planner ESTIMATE, clearly labelled. */}
+        {readiness && Object.keys(readiness.delta || {}).length > 0 && (
+          <div className="mt-4 rounded-lg border hairline bg-foreground/[0.02] p-4">
+            <div className="overline mb-1 flex items-center gap-2">
+              <Building2 className="h-3.5 w-3.5 text-primary" />
+              Projected readiness gain
+              <span className="text-[10px] font-mono normal-case tracking-normal text-amber-300 ml-1">
+                · {readiness.label || 'planner estimate'}
+              </span>
+            </div>
+            <div className="text-[11px] text-muted-foreground mb-2">
+              These are model-based estimates, not guarantees — the actual gain depends on how well the topic sticks.
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1.5">
+              {Object.entries(readiness.delta).map(([cid, delta]) => {
+                const before = (readiness.before || {})[cid];
+                const after = (readiness.after || {})[cid];
+                const sign = delta >= 0 ? '+' : '';
+                return (
+                  <div key={cid} className="flex items-center justify-between text-xs">
+                    <span className="truncate capitalize">{cid.replace('_', ' ')}</span>
+                    <span className="flex items-center gap-1 shrink-0">
+                      <span className="text-muted-foreground font-mono text-[10px]">
+                        {before != null ? `${before.toFixed(1)}→${after != null ? after.toFixed(1) : '—'}` : ''}
+                      </span>
+                      <span className={cn(
+                        'font-mono text-xs',
+                        delta > 0 ? 'text-emerald-300' : delta < 0 ? 'text-rose-300' : 'text-muted-foreground',
+                      )}>
+                        {sign}{Number(delta).toFixed(1)} pp
+                      </span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            {readiness.note && (
+              <div className="mt-2 text-[11px] text-muted-foreground">{readiness.note}</div>
+            )}
+          </div>
+        )}
+
+        {/* RC1.3.2A · Composition rationale (small, subtle). */}
+        {composition && (
+          <div className="mt-4 flex items-start gap-2 text-[11px] text-muted-foreground">
+            <Route className="h-3 w-3 mt-0.5 text-primary/80 shrink-0" />
+            <div>
+              <span className="text-foreground/80 font-medium">Today's shape:</span>{' '}
+              {composition.rationale || `${composition.primary_kind}, ${composition.practice_count} practice`}
+              {continuity && continuity.level && continuity.level !== 'unknown' && (
+                <span className="ml-2">
+                  · continuity: <span className="text-foreground/80">{String(continuity.level).replace('_', ' ')}</span>
+                </span>
+              )}
             </div>
           </div>
         )}

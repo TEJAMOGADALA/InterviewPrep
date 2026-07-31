@@ -260,6 +260,10 @@ class MissionAdjustment(BaseModel):
     detected_weaknesses: List[str] = []
     inserted_prerequisites: List[str] = []
     advance: bool = False  # true if user is progressing
+    # RC1.3.2A · additive audit trail for the composition/validation
+    # decisions. Both are optional so historical rows keep validating.
+    composition: Optional[dict] = None
+    validation: Optional[dict] = None
     created_at: str = Field(default_factory=_now_iso)
 
 

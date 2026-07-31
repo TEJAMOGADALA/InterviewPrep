@@ -105,6 +105,155 @@
 user_problem_statement: "PrepOS RC1.3.1 – Foundation Hardening. Verify: (A) mission completion is immutable — once a mission is `completed`, tasks cannot be toggled and the mission cannot regress to `in_progress`; the complete_mission endpoint is idempotent and does not double-fire streaks/notifications; (B) each task completion immediately updates knowledge state (mastery/confidence/weakness/revision) — validate via the existing toggle_task path (already implemented; verify no regressions); (C) Profile removed from sidebar nav but /app/profile route still works; (D) company_importance walks the full Track → Module → Topic → LearningNode hierarchy — deeper overrides win, unknown levels fall back to track."
 
 backend:
+  - task: "RC1.3.2A · Composition planner (composition.py)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/services/learning_engine/composition.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          New module `services/learning_engine/composition.py` contains:
+            • plan_composition() returns a CompositionPlan dataclass driving
+              practice_count, revision_slots, supporting/core inclusion,
+              capacity_minutes and a human rationale string.
+            • MissionConstraints + validate_mission() enforces explicit
+              caps (max_total_tasks, max_practice_tasks, max_revision_tasks,
+              max_supporting_tasks, max_core_tasks), study-time budget
+              (with 20% overrun tolerance), duplicate-node rejection and
+              conflicting-kinds-per-node rejection.
+            • chain_from_history() + continuity_score() classify a
+              candidate as {same_node, same_topic, same_module,
+              same_track, different_track} vs the learner's last
+              completion.
+          Smoke-tested end-to-end via python REPL.
+
+  - task: "RC1.3.2A · Foresight planner (foresight.py)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/services/learning_engine/foresight.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          New module `services/learning_engine/foresight.py` contains:
+            • likely_next_topics() — deliberately named "likely" (not
+              "future unlocks") because future missions remain adaptive;
+              walks the ROI reverse-prerequisite graph and returns up to
+              3 topics ranked by ROI + direct_unlocks, filtering out
+              already-completed nodes. Emits {node_id, label, track,
+              when:'next|then|later', why}.
+            • estimate_company_readiness_gain() — planner ESTIMATE (never
+              a promise), always returning `estimate: true`,
+              `label: 'planner estimate'`, `unit: 'pp'`, and a qualitative
+              `note`. Uses the same COMPANY_READIONESS_WEIGHTS + the same
+              apply_knowledge_gain function that the toggle-task write
+              path uses, so the estimate can never diverge from the
+              actual mastery update the learner will observe.
+          Smoke-tested with real roadmap data — likely_next_topics for
+          dsa.foundations.arrays.traversal returns 3 sensible next
+          topics with populated `why`/`when` fields.
+
+  - task: "RC1.3.2A · Planner orchestrator (planner.py continuity + regeneration)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/services/learning_engine/planner.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          get_today_learning_node() now:
+            • Accepts `onboarding`, `knowledge_rows`, `recent_completions`,
+              and `skip_node_ids` (all optional; existing callers get
+              identical output when not passing them).
+            • Builds a ContinuityChain and applies a tie-break: when
+              the top two candidates are within 5% of each other on
+              scalar score, prefer the one with lower continuity
+              distance to yesterday's last completed node. Never
+              overrides a strong scalar winner.
+            • Enriches insight with continuity + likely_next_topics +
+              readiness_delta_estimate. All additive keys.
+
+  - task: "RC1.3.2A · Mission builder + regeneration on validator flag"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/mission_engine.py, /app/backend/routes_missions.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          • build_mission_for_user() now accepts an optional
+            composition_plan. When None, it derives one inline so the
+            function stays callable in isolation. practice_count and
+            revision_cap flow from the plan instead of scattered inline
+            heuristics.
+          • After tasks are built, validate_mission(tasks, plan) is
+            called; the result is folded into recommendation_insight
+            (composition + validation keys) AND into the adjustment
+            return dict.
+          • routes_missions._generate_today_mission() re-invokes the
+            learning recommendation ONCE if severity == 'regenerate',
+            passing skip_node_ids so the offending nodes are excluded.
+            Only accepts the retry if its own severity is ok/warn — never
+            replaces a first-attempt mission with a worse second attempt.
+          • MissionAdjustment model gained `composition` and `validation`
+            optional dict fields — historical rows keep validating.
+
+  - task: "RC1.3.2A · Explainable insight (insight.py additive keys)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/services/learning_engine/insight.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          build_recommendation_insight() gained five optional kwargs:
+          composition, continuity, likely_next_topics,
+          readiness_delta_estimate, validation. Each is emitted as an
+          additive key only when supplied; older callers keep identical
+          output. _explanation() weaves the new signals into the
+          bulleted "why this" text (continuity, composition rationale,
+          likely-next hint, readiness estimate with pp unit + planner-
+          estimate framing).
+
+  - task: "RC1.3.2A · Frontend WhyThisMissionDialog (additive sections)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/components/mission/WhyThisMissionDialog.jsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Additive-only: three new sections render inside the existing
+          modal when the backend supplies the fields:
+            • Likely Next Topics (labelled "planner preview, not
+              guaranteed").
+            • Projected readiness gain (labelled "planner estimate",
+              with per-company before→after and delta in "pp"; includes
+              the qualitative note from the backend).
+            • Composition rationale + continuity line (small, subtle,
+              matches existing typography).
+          No visual redesign of Today's Mission card — everything lives
+          inside the "Why this?" dialog.
+
   - task: "Mission completion immutability — toggle_task rejects on completed mission"
     implemented: true
     working: "NA"
@@ -465,6 +614,11 @@ metadata:
 
 test_plan:
   current_focus:
+    - "RC1.3.2A · Composition planner (composition.py)"
+    - "RC1.3.2A · Foresight planner (foresight.py)"
+    - "RC1.3.2A · Planner orchestrator (planner.py continuity + regeneration)"
+    - "RC1.3.2A · Mission builder + regeneration on validator flag"
+    - "RC1.3.2A · Explainable insight (insight.py additive keys)"
     - "Mission completion immutability — toggle_task rejects on completed mission"
     - "Mission completion idempotency — complete_mission uses compare-and-swap"
     - "Task-level knowledge updates on task completion"

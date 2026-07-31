@@ -61,6 +61,84 @@ work. Entry points are canonical: top-right avatar (in `Topbar`) and the
 bottom-left user block (in `Sidebar`). Both consume the same
 `useAuth().user` state so avatar changes reflect everywhere immediately.
 
+## RC1.3.2A — Intelligent Mission Planner (Architectural Improvements)
+
+Additive planner enrichment. No scoring change to `ranking.score_learning_node`;
+no schema change. Two new modules and additive keys on the existing
+`recommendation_insight` payload.
+
+**A. Composition + Constraints + Continuity — `services/learning_engine/composition.py`.**
+Grouped because all three concerns act on a *proposed* mission before
+persistence:
+* `plan_composition(pacing_state, position, revisions_due_count, primary_track,
+  primary_confidence, extra_practice_yesterday) -> CompositionPlan` returns
+  the resolved task-mix (primary_kind, practice_count, revision_slots,
+  include_supporting, include_core, capacity_minutes, rationale).
+* `MissionConstraints` is an explicit dataclass of hard caps
+  (max_total_tasks=6, max_practice_tasks=4, max_revision_tasks=3,
+  max_supporting_tasks=1, max_core_tasks=1, overrun_tolerance=20%,
+  forbid_duplicate_nodes, forbid_conflicting_kinds_per_node). Constraints
+  live in the validator, not scattered inline.
+* `validate_mission(tasks, plan)` returns `MissionValidation`
+  (`severity: ok|warn|regenerate`, `issues`, `hint_skip_node_ids`). Never
+  raises.
+* `chain_from_history(recent_completions)` + `continuity_score(node, chain)`
+  classify a candidate's continuity distance to yesterday's completion
+  (same_node → same_topic → same_module → same_track → different_track).
+
+**B. Foresight — `services/learning_engine/foresight.py`.**
+* `likely_next_topics(node_id, completed_ids, limit=3)` — deliberately
+  named "likely" (not "future unlocks") because future missions remain
+  adaptive. Walks the ROI reverse-prerequisite graph, filters completed,
+  ranks by roi_score + direct_unlocks, and emits
+  `{node_id, label, track, when:'next|then|later', why}`.
+* `estimate_company_readiness_gain(node, onboarding, knowledge_rows,
+  target_companies, difficulty, task_kinds)` — planner ESTIMATE, never a
+  prediction. Uses `mission_engine.compute_company_readiness` +
+  `apply_knowledge_gain` so the estimate always matches the actual
+  update the learner will observe. Always returns `estimate: true`,
+  `label: "planner estimate"`, `unit: "pp"`, a per-company
+  before/after/delta map, and a qualitative note.
+
+**C. Planner orchestrator (`services/learning_engine/planner.py`).**
+`get_today_learning_node()` gained optional kwargs (`onboarding`,
+`knowledge_rows`, `recent_completions`, `skip_node_ids`) — every existing
+call site keeps the same output when not passing them. Continuity is a
+**tie-break**: when the top two candidates are within 5% of each other
+on the scalar score, prefer the one with lower continuity distance.
+Never overrides a strong scalar winner.
+
+**D. Validator-driven regeneration (`routes_missions._generate_today_mission`).**
+If `adjustment.validation.severity == "regenerate"` on the first attempt,
+the orchestrator re-runs `get_today_learning_node(skip_ids=…)` with the
+offending nodes excluded and rebuilds the mission. Only accepts the retry
+if its validation is `ok` or `warn` — never trades down. Both attempts'
+results are captured in the `mission_adjustments` audit row.
+
+**E. Explainability (`services/learning_engine/insight.py`).**
+`build_recommendation_insight()` accepts five optional keyword args and
+emits them as additive top-level keys: `composition`, `continuity`,
+`likely_next_topics`, `readiness_delta_estimate`, `validation`. The
+`_explanation` string weaves them into the existing bulleted "why this"
+text (continuity level, composition rationale, likely-next hint,
+readiness estimate with "planner estimate" framing).
+
+**F. Frontend — no visual redesign.** `WhyThisMissionDialog` renders the
+new signals inside the existing modal only when present:
+* Likely Next Topics strip — clearly labelled "planner preview, not
+  guaranteed".
+* Projected readiness gain — labelled "planner estimate", per-company
+  before→after with delta in pp.
+* Composition rationale + continuity line — subtle single-line summary.
+
+**Backward compatibility.** All new parameters and insight keys are
+optional. `services/learning_engine/ranking.score_learning_node` is
+untouched — the scalar score model stays stable. No schema change
+(the two new `MissionAdjustment` fields are `Optional[dict] = None`).
+No API signature change on `/api/missions/today`.
+
+
+
 **F. Weekly Activity API.** `GET /api/dashboard/weekly-activity` (new,
 additive) rolls up the last 7 days of `activity_events` into 8 UI-facing
 categories (missions, tasks, coding, topics, revisions, knowledge,

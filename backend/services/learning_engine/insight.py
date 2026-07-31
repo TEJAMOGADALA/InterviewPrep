@@ -65,15 +65,23 @@ def _explanation(
     *,
     fits_today: Optional[bool] = None,
     daily_capacity_minutes: Optional[float] = None,
+    composition: Optional[dict] = None,
+    continuity: Optional[dict] = None,
+    likely_next_topics: Optional[list] = None,
+    readiness_delta: Optional[dict] = None,
 ) -> str:
     """Build a readable, bulleted "why this was picked" explanation.
 
-    Every bullet is derived straight from `breakdown` / `company_relevance` /
-    the pacing state already computed for this recommendation — the same
-    signals `ranking.py` used to pick it — so this can never assert
-    something the ranking didn't actually consider. Falls back to a plain
-    one-line sentence when none of the richer signals apply (e.g. a cold
-    start with no target companies and no pacing data yet).
+    Every bullet is derived straight from ``breakdown`` /
+    ``company_relevance`` / the pacing state already computed for this
+    recommendation — the same signals ``ranking.py`` used to pick it —
+    so this can never assert something the ranking didn't actually
+    consider. Falls back to a plain one-line sentence when none of the
+    richer signals apply (e.g. a cold start with no target companies
+    and no pacing data yet).
+
+    RC1.3.2A additions are appended as further bullets but never
+    replace the existing "why this node" reasoning.
     """
     label = node.get("label") or node.get("id")
     confidence = breakdown.get("confidence", 0.0)
@@ -108,6 +116,28 @@ def _explanation(
         hours_label = f"{hours:.0f}" if hours == int(hours) else f"{hours:.1f}"
         bullets.append(f"it fits today's {hours_label}-hour study window")
 
+    if continuity and continuity.get("level") in {"same_topic", "same_module"}:
+        level = continuity["level"].replace("_", " ")
+        bullets.append(f"continues yesterday's learning ({level})")
+
+    if composition and composition.get("rationale"):
+        bullets.append(f"today's shape: {composition['rationale']}")
+
+    if likely_next_topics:
+        first = likely_next_topics[0]
+        bullets.append(
+            f"likely next: {first.get('label', 'more topics')} "
+            f"(future missions may adapt this)"
+        )
+
+    if readiness_delta and readiness_delta.get("top_company"):
+        top = readiness_delta["top_company"]
+        gain = readiness_delta.get("delta", {}).get(top)
+        if gain is not None and gain > 0.05:
+            bullets.append(
+                f"est. +{gain:.1f} pp {top.title()} readiness (planner estimate)"
+            )
+
     if not bullets:
         return f'Selected "{label}" as today\'s best next step.'
     return f'This topic was selected because:\n' + "\n".join(f"\u2022 {b}" for b in bullets)
@@ -120,6 +150,11 @@ def build_recommendation_insight(
     target_companies: Optional[Iterable[str]] = None,
     pacing_state: Optional[dict] = None,
     forecast: Optional[dict] = None,
+    composition: Optional[dict] = None,
+    continuity: Optional[dict] = None,
+    likely_next_topics: Optional[list] = None,
+    readiness_delta_estimate: Optional[dict] = None,
+    validation: Optional[dict] = None,
 ) -> dict:
     """Assemble the structured, explainable Recommendation Insight for one node.
 
@@ -127,6 +162,21 @@ def build_recommendation_insight(
     `ranking.score_learning_node`, `pacing_state` from
     `pacing.compute_pacing_state`, `forecast` from `pacing.forecast_completion`)
     — it derives an explanation and highlights, it never re-derives a score.
+
+    RC1.3.2A additions (all optional; every existing caller keeps the same
+    output when they don't pass the new kwargs):
+
+    * ``composition`` — the resolved ``CompositionPlan`` dict.
+    * ``continuity`` — {level, distance, from} from
+      ``learning_engine.composition.continuity_score``.
+    * ``likely_next_topics`` — LIKELY next picks, deliberately named
+      "likely" because future missions remain adaptive (see
+      ``learning_engine.foresight.likely_next_topics``).
+    * ``readiness_delta_estimate`` — planner ESTIMATE of the per-company
+      readiness gain from completing today's mission; carries
+      ``estimate: true`` so the UI can label it clearly.
+    * ``validation`` — the validator's result (severity/issues) so the
+      learner and future admin UIs can see any planner-detected drift.
     """
     pacing_state = pacing_state or {}
     company_relevance = _company_relevance(node, score_breakdown, target_companies)
@@ -139,9 +189,12 @@ def build_recommendation_insight(
     explanation = _explanation(
         node, score_breakdown, company_relevance,
         fits_today=fits_today, daily_capacity_minutes=daily_capacity,
+        composition=composition, continuity=continuity,
+        likely_next_topics=likely_next_topics,
+        readiness_delta=readiness_delta_estimate,
     )
 
-    return {
+    result = {
         "node_id": node.get("id"),
         "label": node.get("label") or node.get("id"),
         "track": node.get("track"),
@@ -164,3 +217,17 @@ def build_recommendation_insight(
         "highlights": highlights,
         "explanation": explanation,
     }
+
+    # Additive-only new keys — Mission Control renders them if present
+    # and quietly ignores them if absent.
+    if composition is not None:
+        result["composition"] = composition
+    if continuity is not None:
+        result["continuity"] = continuity
+    if likely_next_topics is not None:
+        result["likely_next_topics"] = likely_next_topics
+    if readiness_delta_estimate is not None:
+        result["readiness_delta_estimate"] = readiness_delta_estimate
+    if validation is not None:
+        result["validation"] = validation
+    return result
