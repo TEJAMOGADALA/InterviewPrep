@@ -21,11 +21,14 @@ from ai_mentor.mentor_routes import router as mentor_router
 
 # ------------------------- DB -------------------------
 mongo_url = os.environ["MONGO_URL"]
-client = AsyncIOMotorClient(
-    mongo_url,
-    tlsCAFile=certifi.where(),
-    tz_aware=True,
-)
+# Only enforce TLS CA when talking to a TLS-enabled cluster (Atlas / mongodb+srv
+# style). Local development mongo (no TLS) trips over an unused tlsCAFile.
+_low = mongo_url.lower()
+_needs_tls = mongo_url.startswith("mongodb+srv://") or "tls=true" in _low or "ssl=true" in _low
+_client_kwargs = {"tz_aware": True}
+if _needs_tls:
+    _client_kwargs["tlsCAFile"] = certifi.where()
+client = AsyncIOMotorClient(mongo_url, **_client_kwargs)
 db = client[os.environ["DB_NAME"]]
 
 # ------------------------- App -------------------------

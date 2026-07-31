@@ -1,9 +1,11 @@
-import { Bell, Command, Search, LogOut, User as UserIcon, Settings, Flame } from 'lucide-react';
+import { Bell, Search, LogOut, User as UserIcon, Settings, Flame, Menu, PanelLeftClose, PanelLeft, Moon, Sun, Monitor } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCommandPalette } from '@/contexts/CommandPaletteContext';
 import { useAIPanel } from '@/contexts/AIPanelContext';
+import { useUILayout } from '@/contexts/UILayoutContext';
+import { useTheme } from '@/contexts/ThemeContext';
 import { APP_SHELL, LOGOUT } from '@/constants/testIds';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
@@ -11,15 +13,15 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Sparkles } from 'lucide-react';
 import { dashboardService } from '@/services/mission.service';
-
-function initials(name = '') {
-  return name.split(' ').filter(Boolean).slice(0, 2).map((s) => s[0]?.toUpperCase()).join('') || 'P';
-}
+import { UserAvatar } from '@/components/common/UserAvatar';
+import { cn } from '@/lib/utils';
 
 export function Topbar() {
   const { user, logout } = useAuth();
   const { setOpen: setCmdOpen } = useCommandPalette();
   const { toggle: toggleAIPanel } = useAIPanel();
+  const { sidebarCollapsed, toggleSidebar } = useUILayout();
+  const { theme, setTheme, resolvedTheme } = useTheme();
   const [streak, setStreak] = useState(null);
   const navigate = useNavigate();
 
@@ -32,23 +34,40 @@ export function Topbar() {
     return () => { mounted = false; };
   }, []);
 
+  const ThemeIcon = theme === 'system' ? Monitor : resolvedTheme === 'light' ? Sun : Moon;
+
   return (
     <header
       data-testid={APP_SHELL.topbar}
-      className="sticky top-0 z-20 h-16 border-b border-white/[0.06] bg-background/70 backdrop-blur-xl"
+      className="sticky top-0 z-20 h-16 border-b bg-background/70 backdrop-blur-xl"
+      style={{ borderColor: 'var(--hairline)' }}
     >
-      <div className="h-full flex items-center gap-4 px-6">
+      <div className="h-full flex items-center gap-3 px-4 sm:px-6">
+        {/* Desktop sidebar toggle */}
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          data-testid={APP_SHELL.sidebarToggle}
+          className="hidden lg:inline-flex h-9 w-9 items-center justify-center rounded-lg border hover:bg-foreground/[0.04] transition-colors"
+          style={{ borderColor: 'var(--hairline)' }}
+        >
+          {sidebarCollapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+        </button>
+
         <button
           type="button"
           onClick={() => setCmdOpen(true)}
           data-testid={APP_SHELL.globalSearch}
-          className="group flex-1 max-w-xl flex items-center gap-3 px-3.5 py-2 rounded-lg border border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.04] transition-colors"
+          className="group flex-1 max-w-xl flex items-center gap-3 px-3.5 py-2 rounded-lg border bg-foreground/[0.02] hover:bg-foreground/[0.04] transition-colors"
+          style={{ borderColor: 'var(--hairline)' }}
         >
           <Search className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Search commands, missions, topics…</span>
-          <span className="ml-auto flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
-            <kbd className="px-1.5 py-0.5 rounded border border-white/10 bg-white/[0.03]">⌘</kbd>
-            <kbd className="px-1.5 py-0.5 rounded border border-white/10 bg-white/[0.03]">K</kbd>
+          <span className="text-sm text-muted-foreground hidden sm:inline">Search commands, missions, topics…</span>
+          <span className="text-sm text-muted-foreground sm:hidden">Search…</span>
+          <span className="ml-auto hidden sm:flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
+            <kbd className="px-1.5 py-0.5 rounded border bg-foreground/[0.03]" style={{ borderColor: 'var(--hairline)' }}>⌘</kbd>
+            <kbd className="px-1.5 py-0.5 rounded border bg-foreground/[0.03]" style={{ borderColor: 'var(--hairline)' }}>K</kbd>
           </span>
         </button>
 
@@ -70,10 +89,37 @@ export function Topbar() {
             )}
           </div>
 
+          {/* Theme selector */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                aria-label="Change theme"
+                data-testid={APP_SHELL.themeToggle}
+                className="h-9 w-9 flex items-center justify-center rounded-lg border hover:bg-foreground/[0.04] transition-colors"
+                style={{ borderColor: 'var(--hairline)' }}
+              >
+                <ThemeIcon className="h-4 w-4 text-muted-foreground" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuLabel className="text-xs text-muted-foreground font-mono uppercase tracking-wider">Theme</DropdownMenuLabel>
+              <DropdownMenuItem onSelect={() => setTheme('light')} className={cn('cursor-pointer', theme === 'light' && 'text-primary')} data-testid={`${APP_SHELL.themeToggle}-light`}>
+                <Sun className="h-4 w-4 mr-2" /> Light
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setTheme('dark')} className={cn('cursor-pointer', theme === 'dark' && 'text-primary')} data-testid={`${APP_SHELL.themeToggle}-dark`}>
+                <Moon className="h-4 w-4 mr-2" /> Dark
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setTheme('system')} className={cn('cursor-pointer', theme === 'system' && 'text-primary')} data-testid={`${APP_SHELL.themeToggle}-system`}>
+                <Monitor className="h-4 w-4 mr-2" /> System
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <button
             onClick={() => navigate('/app/notifications')}
             data-testid={APP_SHELL.notificationsButton}
-            className="relative h-9 w-9 flex items-center justify-center rounded-lg border border-white/[0.08] hover:bg-white/[0.04] transition-colors"
+            className="relative h-9 w-9 flex items-center justify-center rounded-lg border hover:bg-foreground/[0.04] transition-colors"
+            style={{ borderColor: 'var(--hairline)' }}
             aria-label="Notifications"
           >
             <Bell className="h-4 w-4 text-muted-foreground" />
@@ -84,11 +130,10 @@ export function Topbar() {
             <DropdownMenuTrigger asChild>
               <button
                 data-testid={APP_SHELL.userMenuButton}
-                className="h-9 pl-1 pr-2.5 flex items-center gap-2 rounded-lg border border-white/[0.08] hover:bg-white/[0.04] transition-colors"
+                className="h-9 pl-1 pr-2.5 flex items-center gap-2 rounded-lg border hover:bg-foreground/[0.04] transition-colors"
+                style={{ borderColor: 'var(--hairline)' }}
               >
-                <span className="h-7 w-7 rounded-md bg-gradient-to-br from-primary to-secondary/70 flex items-center justify-center font-display text-xs font-semibold text-white">
-                  {initials(user?.name)}
-                </span>
+                <UserAvatar user={user} size="sm" data-testid={APP_SHELL.headerAvatar} />
                 <span className="hidden sm:inline text-xs text-muted-foreground max-w-[110px] truncate">
                   {user?.email}
                 </span>
@@ -96,23 +141,26 @@ export function Topbar() {
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
-              className="w-56 bg-[hsl(var(--surface))]/95 border-white/10 backdrop-blur-xl"
+              className="w-56 bg-[hsl(var(--surface))]/95 backdrop-blur-xl"
             >
               <DropdownMenuLabel className="text-xs text-muted-foreground font-mono uppercase tracking-wider">
                 Signed in
               </DropdownMenuLabel>
-              <div className="px-2 pb-2">
-                <p className="text-sm font-medium">{user?.name}</p>
-                <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+              <div className="px-2 pb-2 flex items-center gap-2.5">
+                <UserAvatar user={user} size="md" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{user?.name}</p>
+                  <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                </div>
               </div>
-              <DropdownMenuSeparator className="bg-white/10" />
+              <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => navigate('/app/profile')} className="cursor-pointer">
                 <UserIcon className="h-4 w-4 mr-2" /> Profile
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => navigate('/app/settings')} className="cursor-pointer">
                 <Settings className="h-4 w-4 mr-2" /> Settings
               </DropdownMenuItem>
-              <DropdownMenuSeparator className="bg-white/10" />
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onSelect={async () => { await logout(); navigate('/login'); }}
                 data-testid={LOGOUT.button}

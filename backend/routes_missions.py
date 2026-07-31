@@ -1012,3 +1012,118 @@ async def patch_onboarding(payload: OnboardingPatch, user=Depends(get_current_us
 
     doc = await db.onboarding.find_one({"user_id": user["id"]})
     return OnboardingRecord(**_clean(doc))
+
+
+
+# ============ Weekly Activity ============
+
+@router.get("/dashboard/weekly-activity")
+async def get_weekly_activity(user=Depends(get_current_user)):
+    """Aggregate last-7-day activity by day and by kind.
+
+    Returns a canonical shape that the UI (Mission Control & Analytics) can
+    consume without any additional client-side computation. All counts are
+    derived from `activity_events` — the same source used by the Notification
+    Center and Recent Activity — so numbers are always consistent.
+    """
+    from server import db
+
+    now = datetime.now(timezone.utc)
+    today = now.date()
+    start_dt = datetime.combine(today - timedelta(days=6), datetime.min.time(), tzinfo=timezone.utc)
+
+    # Kinds we care about — grouped into user-facing "categories" for the widget.
+    # Each activity_event.kind maps to one category.
+    kind_to_category = {
+        "mission_completed":    "missions",
+        "mission_generated":    "missions",
+        "task_completed":       "tasks",
+        "problem_feedback":     "coding",
+        "practice_more":        "coding",
+        "topic_completed":      "topics",
+        "topic_mastered":       "topics",
+        "revision_completed":   "revisions",
+        "kb_generated":         "knowledge",
+        "kb_regenerated":       "knowledge",
+        "mentor_message":       "mentor",
+        "mentor_session":       "mentor",
+        "confidence_updated":   "confidence",
+    }
+
+    # Fetch all activity_events in the last 7 days (single query).
+    cursor = db.activity_events.find(
+        {
+            "user_id": user["id"],
+            "ts": {"$gte": start_dt.isoformat()},
+        },
+        {"_id": 0, "ts": 1, "kind": 1},
+    )
+    events = await cursor.to_list(length=5000)
+
+    # Bucket by day (YYYY-MM-DD) and by category.
+    day_labels = []
+    day_keys = []
+    for i in range(6, -1, -1):
+        d = today - timedelta(days=i)
+        day_keys.append(d.isoformat())
+        day_labels.append(d.strftime("%a"))
+
+    categories = ["missions", "tasks", "coding", "topics", "revisions", "knowledge", "mentor", "confidence"]
+    grid = {c: {k: 0 for k in day_keys} for c in categories}
+    totals = {c: 0 for c in categories}
+    per_day_total = {k: 0 for k in day_keys}
+
+    for e in events:
+        ts = e.get("ts")
+        kind = e.get("kind")
+        cat = kind_to_category.get(kind)
+        if not ts or not cat:
+            continue
+        try:
+            day_key = ts[:10]  # ISO date prefix
+        except Exception:
+            continue
+        if day_key not in grid[cat]:
+            continue
+        grid[cat][day_key] += 1
+        totals[cat] += 1
+        per_day_total[day_key] += 1
+
+    # Best-effort mentor session count: also include distinct conversations updated in window
+    try:
+        mentor_conv = db.mentor_conversations.find(
+            {"user_id": user["id"], "updated_at": {"$gte": start_dt.isoformat()}},
+            {"_id": 0, "updated_at": 1},
+        )
+        m_events = await mentor_conv.to_list(length=1000)
+        for m in m_events:
+            day_key = (m.get("updated_at") or "")[:10]
+            if day_key and day_key in grid["mentor"]:
+                # Counted as a mentor touchpoint on that day
+                grid["mentor"][day_key] = max(grid["mentor"][day_key], 1)
+        totals["mentor"] = sum(grid["mentor"].values())
+    except Exception:
+        pass
+
+    # Emit a UI-friendly shape.
+    days = [
+        {
+            "date": day_keys[i],
+            "label": day_labels[i],
+            "total": per_day_total[day_keys[i]],
+            "counts": {c: grid[c][day_keys[i]] for c in categories},
+        }
+        for i in range(7)
+    ]
+
+    max_total = max((d["total"] for d in days), default=0)
+    grand_total = sum(totals.values())
+
+    return {
+        "range": {"start": day_keys[0], "end": day_keys[-1]},
+        "categories": categories,
+        "days": days,
+        "totals": totals,
+        "grand_total": grand_total,
+        "max_day_total": max_total,
+    }

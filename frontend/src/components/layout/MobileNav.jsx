@@ -12,7 +12,7 @@ export function MobileNav() {
       <button
         onClick={() => setOpen(true)}
         aria-label="Open navigation"
-        className="fixed top-3.5 left-4 z-40 h-9 w-9 flex items-center justify-center rounded-lg border border-white/10 bg-[hsl(var(--surface))]/80 backdrop-blur-xl"
+        className="fixed top-3.5 left-4 z-40 h-9 w-9 flex items-center justify-center rounded-lg border hairline bg-[hsl(var(--surface))]/80 backdrop-blur-xl"
       >
         <Menu className="h-4 w-4" />
       </button>
@@ -22,12 +22,12 @@ export function MobileNav() {
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             onClick={() => setOpen(false)}
           />
-          <aside className="relative w-72 h-full bg-[hsl(var(--surface))]/95 backdrop-blur-2xl border-r border-white/10 p-5 flex flex-col">
+          <aside className="relative w-72 h-full bg-[hsl(var(--surface))]/95 backdrop-blur-2xl border-r hairline p-5 flex flex-col">
             <div className="flex items-center justify-between mb-6">
               <Logo />
               <button
                 onClick={() => setOpen(false)}
-                className="h-8 w-8 flex items-center justify-center rounded-md border border-white/10"
+                className="h-8 w-8 flex items-center justify-center rounded-md border hairline"
                 aria-label="Close navigation"
               >
                 <X className="h-4 w-4" />
@@ -46,7 +46,7 @@ export function MobileNav() {
                         'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors',
                         isActive
                           ? 'bg-primary/10 text-foreground border border-primary/30'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-white/[0.03]',
+                          : 'text-muted-foreground hover:text-foreground hover:bg-foreground/[0.04]',
                       )
                     }
                   >

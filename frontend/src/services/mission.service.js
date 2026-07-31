@@ -14,6 +14,7 @@ export const missionService = {
 
 export const dashboardService = {
   get: () => api.get('/dashboard').then((r) => r.data),
+  weeklyActivity: () => api.get('/dashboard/weekly-activity').then((r) => r.data),
 };
 
 export const revisionService = {

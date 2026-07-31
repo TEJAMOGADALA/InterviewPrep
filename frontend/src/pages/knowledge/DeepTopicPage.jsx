@@ -4,13 +4,14 @@ import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
   ChevronRight, Loader2, Home, ExternalLink, Clock, Save, Star,
-  MessageSquare, Zap, ArrowLeft,
+  MessageSquare, Zap, ArrowLeft, Building2,
 } from 'lucide-react';
 import { GlassCard } from '@/components/common/GlassCard';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { roadmapService } from '@/services/mission.service';
+import { userService } from '@/services/auth.service';
 import { formatApiError } from '@/utils/formatApiError';
 import { TARGET_COMPANIES } from '@/config/companies';
 import { cn } from '@/lib/utils';
@@ -39,6 +40,16 @@ export default function DeepTopicPage() {
   const [savingNotes, setSavingNotes] = useState(false);
   const [confidence, setConfidence] = useState([0]);
   const [savingConf, setSavingConf] = useState(false);
+  const [targetCompanies, setTargetCompanies] = useState([]);
+
+  useEffect(() => {
+    // Load target companies so we can put them first in the Interview
+    // Importance card. Fails silently — if we can't reach onboarding we just
+    // fall back to unsorted scores.
+    userService.getOnboarding()
+      .then((o) => setTargetCompanies(o?.target_companies || []))
+      .catch(() => {});
+  }, []);
 
   const load = async () => {
     setLoading(true);
@@ -87,9 +98,19 @@ export default function DeepTopicPage() {
   const { node, breadcrumb, prerequisites, related, problems, company_importance, activity } = data;
   const progress = node.progress || {};
 
-  const importanceSorted = Object.entries(company_importance || {})
-    .filter(([, v]) => v > 0)
+  // RC1.3 — dynamic Interview Importance:
+  //   1. User's target companies first (in the order they appear on Profile).
+  //   2. Then any other companies with a non-zero importance for this topic,
+  //      sorted by score desc.
+  const importanceMap = company_importance || {};
+  const targetSet = new Set(targetCompanies);
+  const targetOrdered = targetCompanies
+    .filter((cid) => cid in importanceMap)
+    .map((cid) => [cid, importanceMap[cid] || 0]);
+  const nonTargetOrdered = Object.entries(importanceMap)
+    .filter(([cid, v]) => !targetSet.has(cid) && v > 0)
     .sort((a, b) => b[1] - a[1]);
+  const importanceSorted = [...targetOrdered, ...nonTargetOrdered];
 
   return (
     <div className="space-y-6" data-testid="deep-topic-root">
@@ -276,17 +297,41 @@ export default function DeepTopicPage() {
         </GlassCard>
 
         <GlassCard className="p-6" data-testid="topic-company-importance">
-          <div className="overline mb-3">Interview importance</div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Building2 className="h-3.5 w-3.5 text-primary" />
+              <div className="overline">Interview importance</div>
+            </div>
+            {targetCompanies.length > 0 && (
+              <span className="text-[10px] font-mono uppercase tracking-wider text-primary/80">
+                Targets first
+              </span>
+            )}
+          </div>
           {importanceSorted.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Not yet mapped.</p>
+            <p className="text-sm text-muted-foreground">Not yet mapped for this topic.</p>
           ) : (
             <div className="space-y-1.5">
               {importanceSorted.slice(0, 8).map(([cid, val]) => {
                 const meta = TARGET_COMPANIES.find((c) => c.id === cid);
+                const isTarget = targetSet.has(cid);
+                const stars = Math.max(0, Math.min(5, Math.round(val || 0)));
                 return (
-                  <div key={cid} className="flex items-center gap-2 text-sm">
-                    <span className="w-24 truncate">{meta?.name || cid}</span>
-                    <span className="text-amber-400 font-mono tracking-wider">{starLine(val)}</span>
+                  <div key={cid} className={cn(
+                    'flex items-center gap-2 text-sm rounded-md px-2 py-1 -mx-2',
+                    isTarget && 'bg-primary/[0.06] border border-primary/20',
+                  )}>
+                    <span className="flex-1 truncate flex items-center gap-1.5">
+                      {meta?.name || cid.replace('_', ' ')}
+                      {isTarget && (
+                        <span className="text-[9px] font-mono uppercase tracking-wider px-1 py-0.5 rounded bg-primary/20 text-primary/90 border border-primary/30">
+                          Target
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-amber-400 font-mono tracking-wider">
+                      {starLine(stars)}
+                    </span>
                   </div>
                 );
               })}

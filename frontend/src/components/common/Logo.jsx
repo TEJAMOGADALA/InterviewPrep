@@ -1,10 +1,11 @@
 import { motion } from 'framer-motion';
 
-export function Logo({ size = 'md', withText = true }) {
+export function Logo({ size = 'md', withText = true, compact = false }) {
   const box = size === 'lg' ? 'h-10 w-10' : size === 'sm' ? 'h-7 w-7' : 'h-9 w-9';
   const text = size === 'lg' ? 'text-2xl' : size === 'sm' ? 'text-base' : 'text-lg';
+  const showText = withText && !compact;
   return (
-    <div className="flex items-center gap-2.5">
+    <div className={compact ? 'flex items-center justify-center' : 'flex items-center gap-2.5'}>
       <motion.div
         initial={{ rotate: -20, opacity: 0 }}
         animate={{ rotate: 0, opacity: 1 }}
@@ -14,7 +15,7 @@ export function Logo({ size = 'md', withText = true }) {
         <span className="font-display text-white font-bold text-sm relative">P</span>
         <span className="absolute -bottom-1 -right-1 h-2.5 w-2.5 rounded-full bg-white/90 border-2 border-background" />
       </motion.div>
-      {withText && (
+      {showText && (
         <div className="leading-none">
           <span className={`font-display font-semibold tracking-tight ${text} text-foreground`}>
             PrepOS

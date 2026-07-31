@@ -15,8 +15,10 @@ import { dashboardService, missionService, roadmapService } from '@/services/mis
 import { TARGET_COMPANIES } from '@/config/companies';
 import { formatApiError } from '@/utils/formatApiError';
 import { cn } from '@/lib/utils';
-import { useMentor } from '@/hooks/useMentor';
+import { useMentorContext } from '@/contexts/MentorContext';
 import { ProgressBar } from '@/components/progress/ProgressBar';
+import { WhyThisMissionDialog } from '@/components/mission/WhyThisMissionDialog';
+import { WeeklyActivityWidget } from '@/components/dashboard/WeeklyActivityWidget';
 
 const ACTIVITY_META = {
   mission_completed:  { dot: 'bg-emerald-400',  label: 'Mission completed' },
@@ -66,7 +68,7 @@ export default function MissionControl() {
   const [expandedDomain, setExpandedDomain] = useState(null);
   const [summary, setSummary] = useState(null);
   const navigate = useNavigate();
-  const mentor = useMentor();
+  const mentor = useMentorContext();
 
   const load = useCallback(async () => {
     try {
@@ -285,13 +287,22 @@ export default function MissionControl() {
             icon={Target}
             title="Today's Mission"
             action={
-              <span className={cn('px-2 py-0.5 rounded-full text-[11px] font-mono uppercase tracking-wider border',
-                missionCompleted ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300'
-                : missionSkipped ? 'border-amber-400/30 bg-amber-400/10 text-amber-300'
-                : 'border-primary/30 bg-primary/10 text-primary')}
-              >
-                {missionCompleted ? 'Completed' : missionSkipped ? 'Skipped' : 'In progress'}
-              </span>
+              <div className="flex items-center gap-2">
+                {mission.recommendation_insight && (
+                  <WhyThisMissionDialog
+                    insight={mission.recommendation_insight}
+                    missionTitle={mission.title}
+                    focusArea={mission.focus_area}
+                  />
+                )}
+                <span className={cn('px-2 py-0.5 rounded-full text-[11px] font-mono uppercase tracking-wider border',
+                  missionCompleted ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300'
+                  : missionSkipped ? 'border-amber-400/30 bg-amber-400/10 text-amber-300'
+                  : 'border-primary/30 bg-primary/10 text-primary')}
+                >
+                  {missionCompleted ? 'Completed' : missionSkipped ? 'Skipped' : 'In progress'}
+                </span>
+              </div>
             }
           />
           <div className="mt-1">
@@ -309,31 +320,7 @@ export default function MissionControl() {
                 <div className="text-sm text-foreground/95">{mission.ai_narrative}</div>
               </div>
             )}
-            {mission.recommendation_insight && (
-              <div className="mt-3 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3.5 py-2.5" data-testid="mission-recommendation-insight">
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                    Why this mission
-                  </div>
-                  <span className="text-[11px] font-mono text-muted-foreground shrink-0">
-                    Score {mission.recommendation_insight.overall_score}
-                  </span>
-                </div>
-                <div className="text-sm text-foreground/90 whitespace-pre-line">{mission.recommendation_insight.explanation}</div>
-                {mission.recommendation_insight.highlights?.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {mission.recommendation_insight.highlights.map((h, i) => (
-                      <span
-                        key={i}
-                        className="px-2 py-0.5 rounded-full text-[11px] border border-primary/25 bg-primary/[0.08] text-primary/90"
-                      >
-                        {h}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Why this mission moved to the "Why this?" button in the header (RC1.3). */}
             <div className="mt-6 grid grid-cols-3 gap-6">
               <div>
                 <div className="overline mb-1">Focus</div>
@@ -569,6 +556,11 @@ export default function MissionControl() {
           )}
           <p className="mt-4 text-xs text-muted-foreground">Spaced repetition · 1d → 3d → 7d → 14d → 30d → 60d (confidence-adjusted).</p>
         </GlassCard>
+
+        {/* Weekly Activity — populated from real activity events (RC1.3) */}
+        <div className="md:col-span-3 lg:col-span-4">
+          <WeeklyActivityWidget />
+        </div>
 
         {/* Knowledge Progress removed from Mission Control */}
 

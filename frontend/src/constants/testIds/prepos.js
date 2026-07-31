@@ -28,13 +28,18 @@ export const RESET_PASSWORD = {
 export const APP_SHELL = {
   sidebar: 'app-sidebar',
   sidebarLink: 'app-sidebar-link',
+  sidebarToggle: 'app-sidebar-toggle',
   topbar: 'app-topbar',
   globalSearch: 'topbar-global-search',
   cmdKButton: 'topbar-cmdk-button',
   notificationsButton: 'topbar-notifications-button',
   userMenuButton: 'topbar-user-menu-button',
+  headerAvatar: 'topbar-user-avatar',
+  themeToggle: 'topbar-theme-toggle',
   aiPanelToggle: 'ai-panel-toggle',
   aiPanel: 'ai-panel',
+  aiPanelOverlay: 'ai-panel-overlay',
+  aiPanelClose: 'ai-panel-close',
   aiInput: 'ai-panel-input',
   aiSendButton: 'ai-panel-send-button',
   commandPalette: 'command-palette',
@@ -50,6 +55,9 @@ export const DASHBOARD = {
   widgetKnowledge: 'dashboard-widget-knowledge',
   widgetActivity: 'dashboard-widget-activity',
   widgetNotifications: 'dashboard-widget-notifications',
+  widgetWeeklyActivity: 'dashboard-widget-weekly-activity',
+  whyThisMissionButton: 'mission-why-this-button',
+  whyThisMissionDialog: 'mission-why-this-dialog',
 };
 
 export const SETTINGS = {

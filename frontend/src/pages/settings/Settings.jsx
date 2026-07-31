@@ -17,8 +17,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { TARGET_COMPANIES } from '@/config/companies';
 import { formatApiError } from '@/utils/formatApiError';
 import { SETTINGS } from '@/constants/testIds';
-import { Loader2, Save, KeyRound } from 'lucide-react';
+import { Loader2, Save, KeyRound, Sun, Moon, Monitor } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useTheme } from '@/contexts/ThemeContext';
 
 const AI_PROVIDERS = [
   { id: 'gemini',   label: 'Google Gemini', active: true,  model: 'gemini-flash-latest' },
@@ -41,6 +42,7 @@ const GEMINI_MODELS = [
 
 export default function Settings() {
   const { user, refresh } = useAuth();
+  const { theme: activeTheme, setTheme } = useTheme();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState(null);
@@ -144,27 +146,31 @@ export default function Settings() {
         <TabsContent value="theme" className="mt-6">
           <GlassCard className="p-6 max-w-2xl">
             <p className="text-sm text-muted-foreground mb-4">
-              PrepOS is dark-first. Light mode arrives in a future release.
+              Choose how PrepOS looks. System matches your operating system preference and updates automatically.
             </p>
             <div className="grid grid-cols-3 gap-3">
-              {['dark', 'system', 'light'].map((t) => {
-                const active = settings.theme === t;
-                const disabled = t !== 'dark';
+              {[
+                { id: 'light',  label: 'Light',  hint: 'Bright · calm',      icon: Sun },
+                { id: 'dark',   label: 'Dark',   hint: 'Default · premium', icon: Moon },
+                { id: 'system', label: 'System', hint: 'Follows OS',        icon: Monitor },
+              ].map((t) => {
+                const active = activeTheme === t.id;
+                const Icon = t.icon;
                 return (
                   <button
-                    key={t}
-                    disabled={disabled}
-                    onClick={() => patch({ theme: t })}
+                    key={t.id}
+                    onClick={() => { setTheme(t.id); patch({ theme: t.id }).catch(() => {}); }}
+                    data-testid={`settings-theme-${t.id}`}
                     className={cn(
-                      'relative rounded-xl border p-4 text-left transition-colors',
-                      active ? 'border-primary/50 bg-primary/10' : 'border-white/10 bg-white/[0.02]',
-                      disabled && 'opacity-40 cursor-not-allowed',
+                      'relative rounded-xl border p-4 text-left transition-all',
+                      active
+                        ? 'border-primary/50 bg-primary/10 shadow-[0_0_0_1px_hsl(var(--primary)/0.3)]'
+                        : 'hairline bg-foreground/[0.02] hover:bg-foreground/[0.04]',
                     )}
                   >
-                    <div className="capitalize font-medium">{t}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {t === 'dark' ? 'Recommended' : t === 'system' ? 'Coming soon' : 'Coming soon'}
-                    </div>
+                    <Icon className={cn('h-4 w-4 mb-2', active ? 'text-primary' : 'text-muted-foreground')} />
+                    <div className="capitalize font-medium">{t.label}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{t.hint}</div>
                   </button>
                 );
               })}
