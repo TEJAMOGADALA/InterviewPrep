@@ -85,12 +85,36 @@ _EXPERIENCE_DIFFICULTY_FLOOR = {
 _DIFFICULTY_ORDER = {"easy": 0, "medium": 1, "hard": 2}
 
 
-def _clamp_difficulty_to_experience(difficulty: str, position: str) -> str:
-    """Clamp a roadmap node's authored difficulty into the learner's experience band."""
+def _clamp_difficulty_to_experience(
+    difficulty: str, position: str, confidence: Optional[float] = None,
+) -> str:
+    """Clamp a roadmap node's authored difficulty into the learner's experience band.
+
+    Foundation RC1.2 item 4: difficulty now also reacts to the learner's
+    actual confidence on today's node (from the same Learning Engine insight
+    already computed by `services/learning_engine/ranking.py` — no second
+    confidence signal). Confidence only moves the result *within* the
+    existing experience floor/ceiling band — a low-confidence Senior is
+    never bumped above their band's floor, and a high-confidence Student is
+    never bumped past their band's ceiling ("hard" stays earned, not just
+    handed out). `confidence` defaults to None, a strict no-op that leaves
+    every existing call site's behavior unchanged.
+    """
     ceiling = _EXPERIENCE_DIFFICULTY_CEILING.get(position, "hard")
     floor = _EXPERIENCE_DIFFICULTY_FLOOR.get(position, "easy")
     order = _DIFFICULTY_ORDER
     clamped = difficulty if difficulty in order else "medium"
+
+    if confidence is not None:
+        step = 0
+        if confidence < 4.0:
+            step = -1
+        elif confidence >= 8.0:
+            step = 1
+        if step:
+            new_order = max(0, min(2, order[clamped] + step))
+            clamped = next(name for name, value in order.items() if value == new_order)
+
     if order[clamped] > order.get(ceiling, 2):
         clamped = ceiling
     if order[clamped] < order.get(floor, 0):
@@ -362,12 +386,17 @@ def build_mission_for_user(
 
     meta = TOPIC_META[focus_topic]
 
-    # Calibrate difficulty to the learner's declared experience band. The
-    # roadmap node's own authored difficulty is the base signal; this only
-    # clamps it into a sane range for the learner instead of leaving mission
-    # difficulty entirely dictated by the static node metadata.
+    # Calibrate difficulty to the learner's declared experience band and (item 4)
+    # their actual confidence on today's node, sourced from the same Learning
+    # Engine insight the recommendation already carries — never a second,
+    # independently-computed confidence signal. The roadmap node's own
+    # authored difficulty is still the base signal; this only clamps it into
+    # a sane, confidence-aware range for the learner.
     position = (onboarding or {}).get("current_position", "0-1")
-    base_difficulty = _clamp_difficulty_to_experience(base_difficulty, position)
+    node_confidence = None
+    if learning_recommendation is not None:
+        node_confidence = (learning_recommendation.get("insight") or {}).get("confidence")
+    base_difficulty = _clamp_difficulty_to_experience(base_difficulty, position, node_confidence)
 
     # Practice count scales with hours
     if daily_hours >= 3:

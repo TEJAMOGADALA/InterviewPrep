@@ -26,6 +26,17 @@ def _reverse_dependents() -> Dict[str, List[str]]:
     return reverse
 
 
+def direct_dependents(node_id: str) -> List[str]:
+    """Return ids of learning nodes that list `node_id` as a direct prerequisite.
+
+    Exposes the same reverse-prerequisite index `compute_learning_roi` builds
+    internally, so any caller needing the actual dependent ids (not just the
+    count) — e.g. planner.py's support-recommendation "same prerequisite
+    chain" tier — reuses this graph instead of re-walking `prerequisites`.
+    """
+    return list(_reverse_dependents().get(node_id, []))
+
+
 def _downstream_closure(node_id: str) -> Set[str]:
     """Every node transitively reachable from `node_id` in the reverse-prerequisite
     graph — i.e. the full long-term curriculum value of completing it."""

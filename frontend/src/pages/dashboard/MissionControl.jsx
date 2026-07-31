@@ -319,7 +319,7 @@ export default function MissionControl() {
                     Score {mission.recommendation_insight.overall_score}
                   </span>
                 </div>
-                <div className="text-sm text-foreground/90">{mission.recommendation_insight.explanation}</div>
+                <div className="text-sm text-foreground/90 whitespace-pre-line">{mission.recommendation_insight.explanation}</div>
                 {mission.recommendation_insight.highlights?.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {mission.recommendation_insight.highlights.map((h, i) => (

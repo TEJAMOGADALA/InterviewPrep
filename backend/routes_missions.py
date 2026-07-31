@@ -141,6 +141,26 @@ async def _count_extra_practice_yesterday(db, user_id: str) -> int:
     })
 
 
+async def _get_recent_mission_node_ids(db, user_id: str, days: int = 5) -> list:
+    """Return study/practice node ids from the learner's last few missions.
+
+    Foundation RC1.2 item 6 (recommendation diversity): reuses the existing
+    `daily_missions` collection — no new history store — so
+    `get_today_learning_node` can lightly deprioritize repeating the same
+    node without touching prerequisite/unlock logic.
+    """
+    since = (datetime.now(timezone.utc).date() - timedelta(days=days)).isoformat()
+    cur = db.daily_missions.find(
+        {"user_id": user_id, "date": {"$gte": since}}, {"tasks.node_id": 1, "_id": 0},
+    )
+    node_ids = []
+    async for doc in cur:
+        for task in doc.get("tasks", []) or []:
+            if task.get("node_id"):
+                node_ids.append(task["node_id"])
+    return node_ids
+
+
 def _progress_node_id_for_task(task: dict) -> str:
     """Return the concrete roadmap node represented by a mission task.
 
@@ -229,6 +249,7 @@ async def _generate_today_mission(db, user_id: str) -> DailyMission:
     revisions_due = await _get_due_revisions(db, user_id)
     recent_feedback = await _get_recent_feedback(db, user_id, hours=36)
     extra_yesterday = await _count_extra_practice_yesterday(db, user_id)
+    recent_node_ids = await _get_recent_mission_node_ids(db, user_id)
 
     remaining_curriculum = count_remaining_learning_nodes(get_roadmap(), knowledge_nodes)
     pacing_state = compute_pacing_state(
@@ -241,6 +262,7 @@ async def _generate_today_mission(db, user_id: str) -> DailyMission:
         user_id, db=db, pacing_state=pacing_state,
         target_companies=onboarding.get("target_companies"),
         completed_dates=[row.get("completion_date") for row in knowledge_node_rows if row.get("completion_date")],
+        recent_node_ids=recent_node_ids,
     )
 
     mission, adjustment = build_mission_for_user(

@@ -10,8 +10,16 @@ def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
         return None
     try:
         if isinstance(value, datetime):
-            return value
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if value.tzinfo is None:
+                return value.replace(tzinfo=timezone.utc)
+            return value.astimezone(timezone.utc)
+        # ISO string (supports both YYYY-MM-DD and full ISO timestamps)
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        # Normalize to UTC-aware datetime
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+
+        return dt.astimezone(timezone.utc)
     except Exception:
         return None
 

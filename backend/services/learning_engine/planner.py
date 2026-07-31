@@ -9,6 +9,7 @@ from services.learning_engine.insight import build_recommendation_insight
 from services.learning_engine.pacing import forecast_completion
 from services.learning_engine.ranking import rank_learning_nodes, score_learning_node
 from services.learning_engine.revision import get_highest_priority_revision
+from services.learning_engine.roi import direct_dependents
 from services.learning_engine.unlock import get_unlocked_nodes, next_unlockable_nodes
 from services.progress_engine import load_user_progress_rows
 
@@ -50,6 +51,21 @@ def _choose_support_node(support_track: str, progress_rows: list) -> Optional[di
     return None
 
 
+def _qualifying_candidate(node_id: Optional[str], completed_ids: set) -> Optional[dict]:
+    """Return the roadmap learning node for `node_id` if it's a real, unlocked,
+    not-yet-completed candidate — the shared eligibility check every support
+    tier below uses, so "reinforcement" never means a locked or finished node."""
+    if not node_id or node_id in completed_ids:
+        return None
+    roadmap = get_roadmap()
+    candidate = roadmap.get_learning_node(node_id)
+    if candidate is None:
+        return None
+    if not roadmap.is_unlocked(node_id, completed_ids):
+        return None
+    return candidate
+
+
 def _build_support_recommendation(
     node: Optional[dict],
     progress_rows: list,
@@ -57,33 +73,44 @@ def _build_support_recommendation(
     """
     Build an adaptive secondary recommendation.
 
-    Prefers a node from the roadmap's own `related` graph for the primary
-    node (same pattern family — real reinforcement, e.g. a sliding-window
-    problem paired with another sliding-window problem) so the support task
-    stays topically connected to what the learner is actually studying
-    today. Falls back to the learner's weakest non-primary track only when
-    no such related, unlocked, incomplete node exists.
+    Priority (Foundation RC1.2 item 2), each tier only falling through to the
+    next when it finds no qualifying (unlocked, incomplete) candidate:
+      1. Same prerequisite chain — the immediate next step(s) that directly
+         depend on today's primary node (reuses roi.py's existing
+         reverse-prerequisite index; no second graph).
+      2. Same concept family — another learning node authored under the same
+         roadmap `category` (e.g. another binary-search variant).
+      3. `roadmap.related()` — the explicit cross-reference graph.
+      4. Cross-track — the learner's weakest non-primary track, only when
+         nothing topically connected exists.
     """
 
     if not node:
         return None
 
+    primary_id = node.get("id")
     primary_track = node.get("track")
+    primary_category = node.get("category")
     roadmap = get_roadmap()
     completed_ids = _completed_node_ids(progress_rows)
 
-    for related in roadmap.related(node.get("id")):
-        related_id = related.get("id")
-        if not related_id or related_id in completed_ids:
-            continue
-        if roadmap.get_learning_node(related_id) is None:
-            continue
-        if not roadmap.is_unlocked(related_id, completed_ids):
-            continue
-        return {
-            "support_track": related.get("track", primary_track),
-            "support_node": related_id,
-        }
+    for dependent_id in direct_dependents(primary_id):
+        candidate = _qualifying_candidate(dependent_id, completed_ids)
+        if candidate:
+            return {"support_track": candidate.get("track", primary_track), "support_node": candidate.get("id")}
+
+    if primary_category:
+        for sibling in roadmap.get_learning_nodes():
+            if sibling.get("category") != primary_category or sibling.get("id") == primary_id:
+                continue
+            candidate = _qualifying_candidate(sibling.get("id"), completed_ids)
+            if candidate:
+                return {"support_track": candidate.get("track", primary_track), "support_node": candidate.get("id")}
+
+    for related in roadmap.related(primary_id):
+        candidate = _qualifying_candidate(related.get("id"), completed_ids)
+        if candidate:
+            return {"support_track": candidate.get("track", primary_track), "support_node": candidate.get("id")}
 
     candidates = {}
 
@@ -169,6 +196,7 @@ async def get_today_learning_node(
     user_id: str, *, db=None, pacing_state: Optional[dict] = None,
     target_companies: Optional[Iterable[str]] = None,
     completed_dates: Optional[Iterable[str]] = None,
+    recent_node_ids: Optional[Iterable[str]] = None,
 ) -> Optional[dict]:
     """Return the best learning recommendation for the user.
 
@@ -189,14 +217,21 @@ async def get_today_learning_node(
     `pacing.forecast_completion()` to attach a completion forecast onto the
     returned recommendation's `insight`. Defaults to None (no history yet),
     which yields a zero-pace forecast.
+
+    `recent_node_ids` (Foundation RC1.2 item 6) is the set of node ids the
+    learner was recommended in their last few missions. Defaults to None (no
+    history / no-op), which applies zero recency penalty in `ranking.py` —
+    identical ranking to before this parameter existed.
     """
     progress_rows = await _load_progress_rows(user_id, db)
     pacing_state = pacing_state or {}
     urgency = float(pacing_state.get("urgency", 0.0))
+    progress_map = {row.get("node_id"): row for row in progress_rows if row.get("node_id")}
 
     def _attach_insight(node: dict, progress: dict) -> dict:
         breakdown = score_learning_node(
             node, progress, target_companies=target_companies, urgency=urgency,
+            progress_map=progress_map, recent_node_ids=recent_node_ids,
         )
         forecast = forecast_completion(pacing_state, completed_dates=completed_dates)
         return build_recommendation_insight(
@@ -221,9 +256,9 @@ async def get_today_learning_node(
     if not unlocked_nodes:
         return None
 
-    progress_map = {row.get("node_id"): row for row in progress_rows if row.get("node_id")}
     ranked_nodes = rank_learning_nodes(
         unlocked_nodes, progress_map, target_companies=target_companies, urgency=urgency,
+        recent_node_ids=recent_node_ids,
     )
     if not ranked_nodes:
         return None
