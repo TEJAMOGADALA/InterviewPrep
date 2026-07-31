@@ -9,6 +9,66 @@ Build the production-ready foundation for an AI-powered Interview Operating Syst
 - **Auth:** JWT access + refresh, httpOnly cookies (SameSite=None+Secure for HTTPS preview). Custom email/password.
 - **Design:** Cool Indigo `#6366F1` primary on Near-Black `#0B0F19` with dark glassmorphism cards. Outfit / Manrope / JetBrains Mono typography.
 
+## RC1.3.1 — Foundation Hardening (Architectural Improvements)
+
+Non-breaking hardening pass applied on top of the RC1.3 feature set.
+No adaptive-recommendation behaviour was changed; the objective was to
+strengthen the invariants those recommendations rely on.
+
+**A. Mission Completion Immutability.** Once `daily_missions.status ==
+'completed'`, tasks become read-only. `POST /missions/{id}/tasks/{tid}/toggle`
+returns HTTP 409 with detail "Mission already completed — tasks are locked."
+This closes the previous `completed → in_progress` regression that
+corrupted streaks, notifications and planner history. The lock also
+protects the backwards-compat `/tasks/{tid}/complete` wrapper since it
+delegates to `toggle_task`. Skipped-mission guard is preserved.
+
+**B. Idempotent Mission Completion.** `POST /missions/{id}/complete` now
+claims the terminal state via a MongoDB compare-and-swap
+(`find_one_and_update({id, status: {$ne: 'completed'}}, ...)`) so
+concurrent completion requests have exactly one winner. Streak bump,
+`mission_completed` activity event, and any planner-visible side effects
+are gated behind the winning claim, guaranteeing single-fire behaviour
+even under a true race. Already-completed → returns current doc (200);
+skipped → completed transitions are rejected with 409. Secondary defense
+in `services/streak_engine.update_streak_on_completion` remains
+per-day idempotent, so even a bypassed CAS could not double-bump.
+
+**C. Task-Level Knowledge Update Contract.** Every task toggle
+(`toggle_task`) invokes `_record_completed_task_progress`, which writes
+to the canonical `knowledge_nodes` row (mastery_percentage, status,
+completion_date, updated_at, confidence via `score_to_node_fields`) and
+schedules the next revision via `mark_node_for_revision`. Mission-level
+side effects (streak, mission activity_events) fire ONLY on
+`complete_mission`. This separation is now explicit and documented, so
+future mission features can safely assume knowledge state is up-to-date
+per-task.
+
+**D. Company-Importance Hierarchy Inheritance.**
+`RoadmapEngine.company_importance(node_id, company_id)` walks the chain
+`LearningNode → Topic → Module → Track` (first hit wins). Added
+`RoadmapEngine.company_importance_chain(node_id, company_id)`
+introspection helper that returns `{level, source_id, value}` for future
+UI ("importance inherited from …"). Backward compatible: roadmap files
+that only carry track-level data return exactly the same integer as
+before. No roadmap-file migration required. The ranking engine consumes
+the same function, so authored node-level overrides begin propagating
+into recommendation scoring automatically once the data adds them.
+
+**E. Sidebar Cleanup.** `NAV_ITEMS` (`/app/frontend/src/config/navigation.js`)
+no longer lists Profile. Route `/app/profile` remains active so deep-links
+work. Entry points are canonical: top-right avatar (in `Topbar`) and the
+bottom-left user block (in `Sidebar`). Both consume the same
+`useAuth().user` state so avatar changes reflect everywhere immediately.
+
+**F. Weekly Activity API.** `GET /api/dashboard/weekly-activity` (new,
+additive) rolls up the last 7 days of `activity_events` into 8 UI-facing
+categories (missions, tasks, coding, topics, revisions, knowledge,
+mentor, confidence) with per-day counts and totals. Consumed by
+`WeeklyActivityWidget` on Command Analytics.
+
+
+
 ## Architecture
 ```
 /app/backend
