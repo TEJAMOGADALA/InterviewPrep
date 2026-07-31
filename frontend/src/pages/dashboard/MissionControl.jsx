@@ -354,22 +354,30 @@ export default function MissionControl() {
               </div>
             </div>
 
-            {/* Tasks */}
+            {/* Tasks — once the mission is completed, tasks become read-only
+                (RC1.3.1 immutability contract). The backend enforces this
+                too (409 on toggle); the disabled state here surfaces the
+                lock immediately so the UI doesn't offer an interaction
+                that will be rejected. */}
             <div className="mt-5 space-y-2">
               {tasks.map((t) => {
                 const isBusy = busyTask === t.id;
                 const isPractice = t.kind === 'practice' && t.pattern;
+                const taskLocked = missionSkipped || missionCompleted;
                 return (
                   <div key={t.id} className="flex items-stretch gap-2">
                     <button
-                      onClick={() => !missionSkipped && onToggleTask(t.id)}
-                      disabled={missionSkipped || isBusy}
+                      onClick={() => !taskLocked && onToggleTask(t.id)}
+                      disabled={taskLocked || isBusy}
                       data-testid={`mission-task-${t.id}`}
+                      title={missionCompleted ? 'Mission completed — tasks are locked.' : undefined}
                       className={cn(
                         'group flex-1 text-left flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors',
                         t.completed
-                          ? 'border-emerald-400/40 bg-emerald-400/[0.12] hover:bg-emerald-400/[0.16]'
-                          : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/[0.12]',
+                          ? 'border-emerald-400/40 bg-emerald-400/[0.12]'
+                          : 'border-white/[0.06] bg-white/[0.02]',
+                        !taskLocked && (t.completed ? 'hover:bg-emerald-400/[0.16]' : 'hover:bg-white/[0.05] hover:border-white/[0.12]'),
+                        taskLocked && 'cursor-not-allowed opacity-95',
                       )}
                     >
                       <span className={cn('h-5 w-5 rounded-full border flex items-center justify-center shrink-0 transition-colors',

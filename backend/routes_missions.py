@@ -345,19 +345,32 @@ async def toggle_task(mission_id: str, task_id: str, user=Depends(get_current_us
     if doc["status"] == "skipped":
         raise HTTPException(status_code=400, detail="Mission was skipped.")
 
+    # RC1.3.1 · Mission-completion immutability:
+    # Once a mission has been marked completed, individual tasks become
+    # read-only. This prevents the completed → in_progress regression that
+    # was corrupting streaks, notifications and planner history when users
+    # (accidentally or otherwise) unchecked a task on an already-completed
+    # mission. Admins can still force-reset via a future admin endpoint —
+    # regular users must never observe the transition go backwards.
+    if doc["status"] == "completed":
+        raise HTTPException(
+            status_code=409,
+            detail="Mission already completed — tasks are locked.",
+        )
+
     task = next((t for t in doc["tasks"] if t["id"] == task_id), None)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
     if task["completed"]:
-        # UNCHECK — reverse
+        # UNCHECK — reverse. Safe because the mission cannot be `completed`
+        # at this point (guarded above); the un-check therefore only
+        # affects an in-progress mission.
         task["completed"] = False
         task["completed_at"] = None
-        # If mission was marked completed, revert to in_progress
-        new_status = "in_progress" if doc["status"] == "completed" else doc["status"]
         await db.daily_missions.update_one(
             {"id": mission_id},
-            {"$set": {"tasks": doc["tasks"], "status": new_status, "completed_at": None}},
+            {"$set": {"tasks": doc["tasks"]}},
         )
         await _log_activity(db, user["id"], "task_uncompleted", f"Uncompleted: {task['title']}")
     else:
@@ -394,16 +407,36 @@ async def complete_task(mission_id: str, task_id: str, user=Depends(get_current_
 
 @router.post("/missions/{mission_id}/complete", response_model=DailyMission)
 async def complete_mission(mission_id: str, user=Depends(get_current_user)):
+    """RC1.3.1 · Complete a mission — idempotent + atomic.
+
+    * If the mission is already `completed`, we short-circuit with the
+      existing document. No streak bump, no duplicate notification, no
+      duplicate planner event, no re-record of task progress.
+    * If the mission was `skipped`, refuse the transition (cannot un-skip
+      via completion — a skip is terminal for the day).
+    * Guards against duplicate completion requests by claiming the
+      terminal state via a conditional `find_one_and_update` (compare-
+      and-swap on `status`) BEFORE performing any side-effects. Two
+      concurrent completion calls therefore have exactly one winner; the
+      loser sees the already-completed document.
+    """
     from server import db
     doc = await db.daily_missions.find_one({"id": mission_id, "user_id": user["id"]})
     if not doc:
         raise HTTPException(status_code=404, detail="Mission not found")
     if doc["status"] == "completed":
         return DailyMission(**_clean(doc))
+    if doc["status"] == "skipped":
+        raise HTTPException(status_code=409, detail="Mission was skipped — cannot complete.")
 
     now = _now_iso()
     onboarding = await _get_onboarding(db, user["id"])
     baseline = (onboarding or {}).get("self_assessment", {})
+
+    # Mark any pending tasks complete and record their per-node progress
+    # BEFORE we flip the mission status — that way if the write fails the
+    # mission stays in_progress and can be retried without duplicating
+    # streak/notification side-effects.
     for t in doc["tasks"]:
         if not t["completed"]:
             t["completed"] = True
@@ -412,10 +445,20 @@ async def complete_mission(mission_id: str, user=Depends(get_current_user)):
                 db, user["id"], t, doc["difficulty"], baseline, now,
             )
 
-    await db.daily_missions.update_one(
-        {"id": mission_id},
+    # Atomic compare-and-swap: only the first caller flips the state to
+    # `completed`. This eliminates the "double streak / double
+    # notification" race that appeared when the UI double-submitted.
+    claim = await db.daily_missions.find_one_and_update(
+        {"id": mission_id, "status": {"$ne": "completed"}},
         {"$set": {"status": "completed", "completed_at": now, "tasks": doc["tasks"]}},
+        return_document=True,
     )
+    if claim is None:
+        # Another request already completed it — return the winning state.
+        winner = await db.daily_missions.find_one({"id": mission_id})
+        return DailyMission(**_clean(winner))
+
+    # Side effects — only ever fired by the claim winner.
     await _upsert_streak_on_completion(db, user["id"])
     await _log_activity(
         db, user["id"], "mission_completed",

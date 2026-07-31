@@ -192,16 +192,61 @@ class RoadmapEngine:
         return pids
 
     def company_importance(self, node_id: str, company_id: str) -> int:
-        """Returns 0-5. Falls back to track-level importance."""
+        """Return the 0-5 company-importance rating for ``node_id``.
+
+        RC1.3.1 · Hierarchical inheritance:
+            LearningNode → Topic → Module → Track
+        The first level (walking up the tree) that declares an entry for
+        ``company_id`` wins. This lets roadmap authors override at any
+        granularity — a single subtopic can bump Google to 5 stars without
+        touching the whole track — while still degrading gracefully for
+        older roadmap files that only carried track-level data.
+
+        Backward compatible with the previous two-level (node → track)
+        fallback: if only track-level data exists (older roadmap files),
+        behaviour is unchanged.
+        """
         n = self.get(node_id)
         if not n:
             return 0
-        track = self.find_track(node_id)
-        for src in (n, track):
-            if src and (ci := src.get("company_importance")):
-                if company_id in ci:
+        # Walk from the node up through every ancestor (nearest first) and
+        # finally the track. `ancestors` already returns root-to-node, so we
+        # reverse it to get node → topic → module → … → track.
+        chain = [n] + list(reversed(self.ancestors(node_id)))
+        for src in chain:
+            ci = src.get("company_importance") if src else None
+            if ci and company_id in ci:
+                try:
                     return int(ci[company_id])
+                except (TypeError, ValueError):
+                    return 0
         return 0
+
+    def company_importance_chain(self, node_id: str, company_id: str) -> Optional[dict]:
+        """Introspection helper — return which ancestor supplied the score.
+
+        Returns {"level": "topic|module|track|node", "source_id": str, "value": int}
+        or None if nothing in the chain declared a rating for the company.
+        Not used by the ranking engine — kept purely for debugging /
+        future UI ("importance inherited from Track: DSA").
+        """
+        n = self.get(node_id)
+        if not n:
+            return None
+        chain = [n] + list(reversed(self.ancestors(node_id)))
+        for src in chain:
+            ci = src.get("company_importance") if src else None
+            if ci and company_id in ci:
+                try:
+                    val = int(ci[company_id])
+                except (TypeError, ValueError):
+                    continue
+                return {
+                    "level": src.get("type", "unknown"),
+                    "source_id": src.get("id"),
+                    "value": val,
+                }
+        return None
 
     def tracks(self) -> List[dict]:
         return list(self._raw["tracks"])

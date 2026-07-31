@@ -283,23 +283,27 @@ async def get_node_detail(node_id: str, user=Depends(get_current_user)):
     # Track
     track = roadmap.find_track(node_id)
 
-    # Company importance — for display we blend node-level and track-level
-    # signals so topics without differentiated per-node data still surface the
-    # track's known company bias. This is a *view-only* blend; the ranking
-    # engine keeps consuming `roadmap.company_importance()` unchanged.
+    # Company importance — for display we blend the effective inherited
+    # rating (LearningNode → Topic → Module → Track, first hit wins) with
+    # the track's own rating so topics without differentiated per-node data
+    # still surface the track's known company bias. This is a *view-only*
+    # blend; the ranking engine keeps consuming
+    # `roadmap.company_importance()` unchanged (which now itself walks the
+    # full hierarchy as of RC1.3.1).
     companies = roadmap.tree().get("companies", [])
-    node_ci = (node.get("company_importance") or {}) if isinstance(node, dict) else {}
     track_ci = (track.get("company_importance") or {}) if track else {}
     company_importance = {}
     for c in companies:
-        nv = int(node_ci.get(c, 0) or 0)
+        # `roadmap.company_importance` walks Node → Topic → Module → Track.
+        # For the display blend we deliberately combine that inherited
+        # value with the track-level anchor so uniform-per-node topics
+        # still differentiate across companies.
+        inherited = roadmap.company_importance(node_id, c)
         tv = int(track_ci.get(c, 0) or 0)
-        if nv and tv:
-            # Weighted blend rounded to nearest integer — surfaces track
-            # bias while still respecting explicit per-node overrides.
-            blended = round(0.65 * nv + 0.35 * tv)
+        if inherited and tv:
+            blended = round(0.65 * inherited + 0.35 * tv)
         else:
-            blended = nv or tv
+            blended = inherited or tv
         company_importance[c] = max(0, min(5, int(blended)))
 
     return {

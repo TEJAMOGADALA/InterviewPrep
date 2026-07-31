@@ -101,3 +101,100 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "PrepOS RC1.3.1 – Foundation Hardening. Verify: (A) mission completion is immutable — once a mission is `completed`, tasks cannot be toggled and the mission cannot regress to `in_progress`; the complete_mission endpoint is idempotent and does not double-fire streaks/notifications; (B) each task completion immediately updates knowledge state (mastery/confidence/weakness/revision) — validate via the existing toggle_task path (already implemented; verify no regressions); (C) Profile removed from sidebar nav but /app/profile route still works; (D) company_importance walks the full Track → Module → Topic → LearningNode hierarchy — deeper overrides win, unknown levels fall back to track."
+
+backend:
+  - task: "Mission completion immutability — toggle_task rejects on completed mission"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/routes_missions.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Added a hard guard in POST /api/missions/{mission_id}/tasks/{task_id}/toggle: if mission.status == 'completed', return 409 'Mission already completed — tasks are locked.' No more regression from completed → in_progress via toggle. Skipped-mission guard preserved."
+
+  - task: "Mission completion idempotency — complete_mission uses compare-and-swap"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/routes_missions.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Rewrote POST /api/missions/{id}/complete to (a) short-circuit when status=='completed' returning current doc, (b) reject skipped→completed transitions with 409, (c) claim the terminal state via find_one_and_update({status: {$ne: completed}}) so concurrent requests get exactly one winner — the loser gets the already-completed doc. Streak + notification + activity are only fired by the claim winner, so two POSTs cannot double-bump streak/notifications."
+
+  - task: "Task-level knowledge updates on task completion"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/routes_missions.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Existing _record_completed_task_progress already updates knowledge_nodes (mastery, status, completion_date, updated_at) and schedules revision via mark_node_for_revision on every task toggle. Verify this fires per-task and NOT just on mission completion."
+
+  - task: "Company importance walks Track → Module → Topic → LearningNode"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/roadmap.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "roadmap.company_importance(node_id, company_id) now walks [node] + reversed(ancestors) — LearningNode → Topic → Module → Track — first-hit wins. Backward compatible: if only track-level exists (older files), returns the same value. Added roadmap.company_importance_chain() introspection helper (level, source_id, value). No consumer of the old API breaks; ranking engine uses the same function so deeper overrides now propagate into scoring."
+
+  - task: "Weekly Activity endpoint (RC1.3)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/routes_missions.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "New GET /api/dashboard/weekly-activity returns last-7-day activity buckets (missions/tasks/coding/topics/revisions/knowledge/mentor/confidence). Populated from activity_events + mentor_conversations. Ensure it returns 200 and correct shape (days[7], totals, grand_total, max_day_total, categories, range)."
+
+frontend:
+  - task: "Frontend RC1.3.1 UI hardening (mission lock, sidebar Profile removed, avatar sync)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/pages/dashboard/MissionControl.jsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Only backend testing required for this iteration; frontend visuals are additive and non-breaking."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.3.1"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Mission completion immutability — toggle_task rejects on completed mission"
+    - "Mission completion idempotency — complete_mission uses compare-and-swap"
+    - "Task-level knowledge updates on task completion"
+    - "Company importance walks Track → Module → Topic → LearningNode"
+    - "Weekly Activity endpoint (RC1.3)"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: "RC1.3.1 · Foundation Hardening delivered. Please verify: (A) once POST /missions/{id}/complete succeeds, subsequent POST /missions/{id}/tasks/{tid}/toggle returns 409; (B) two rapid POST /missions/{id}/complete calls result in exactly ONE mission_completed event in activity_events and ONE streak bump (streak.current_streak does not double); (C) a POST /missions/{id}/tasks/{tid}/toggle on an in-progress mission immediately writes to knowledge_nodes (mastery_percentage increases + status=completed + next_revision set on the target node_id); (D) roadmap.company_importance() honours node/topic/module overrides — pick a node whose topic or module sets a company_importance value different from its track and confirm the returned value is the deepest override, not the track fallback; (E) GET /api/dashboard/weekly-activity returns the documented shape. Test credentials: admin@prepos.io / Admin@123 (already in /app/memory/test_credentials.md). Onboarding may need to be completed once for the admin before mission endpoints work — the tester can call POST /api/onboarding with any valid payload."
