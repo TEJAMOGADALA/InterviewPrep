@@ -4,7 +4,7 @@ import time
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://ux-stabilize-1.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://adaptive-hardening.preview.emergentagent.com").rstrip("/")
 ADMIN_EMAIL = "admin@prepos.io"
 ADMIN_PASS = "Admin@123"
 

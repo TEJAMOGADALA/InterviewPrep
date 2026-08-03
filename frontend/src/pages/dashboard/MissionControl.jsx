@@ -452,23 +452,38 @@ export default function MissionControl() {
           </div>
         </GlassCard>
 
-        {/* Adaptive Mission Engine — Tomorrow Preview + Week Goal */}
-        {(mission.tomorrow_preview || mission.week_goal) && (
-          <GlassCard className="p-6" data-testid="mission-adaptive-forecast">
+        {/* Adaptive Mission Engine — Tomorrow Preview + Week Goal.
+            RC1.3.3 · Forecast robustness:
+              The card renders whenever ANY forecast source is available:
+                a) AI-enriched tomorrow_preview / week_goal, OR
+                b) the deterministic `likely_next_topics` computed by
+                   services/learning_engine/foresight.py — always
+                   produced when planner data is sufficient, so this
+                   lane keeps the widget alive even when the AI
+                   enrichment layer is silent.
+              Text uses `line-clamp-2` + `title` for hover-hint so long
+              labels wrap gracefully instead of clipping abruptly. */}
+        {(mission.tomorrow_preview
+          || mission.week_goal
+          || (Array.isArray(mission.recommendation_insight?.likely_next_topics)
+              && mission.recommendation_insight.likely_next_topics.length > 0)) && (
+          <GlassCard className="p-6 md:col-span-2 lg:col-span-2" data-testid="mission-adaptive-forecast">
             <WidgetHeader icon={Route} title="What's next · adaptive forecast" />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
               {mission.tomorrow_preview && (
-                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-4">
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-4 min-w-0">
                   <div className="text-[10px] font-mono uppercase tracking-wider text-primary/80 mb-1">Tomorrow</div>
                   <ul className="text-sm space-y-1 mb-2">
-                    <li className="flex items-center gap-2">
-                      <span className="text-primary">•</span>
-                      <span className="truncate">{mission.tomorrow_preview.focus}</span>
+                    <li className="flex items-start gap-2">
+                      <span className="text-primary mt-0.5">•</span>
+                      <span className="flex-1 min-w-0 line-clamp-2 break-words" title={mission.tomorrow_preview.focus}>
+                        {mission.tomorrow_preview.focus}
+                      </span>
                     </li>
                     {Array.isArray(mission.tomorrow_preview.topics) && mission.tomorrow_preview.topics.slice(0, 4).map((t, i) => (
-                      <li key={i} className="flex items-center gap-2">
-                        <span className="text-primary">•</span>
-                        <span className="truncate">{t}</span>
+                      <li key={i} className="flex items-start gap-2">
+                        <span className="text-primary mt-0.5">•</span>
+                        <span className="flex-1 min-w-0 line-clamp-2 break-words" title={t}>{t}</span>
                       </li>
                     ))}
                   </ul>
@@ -481,13 +496,13 @@ export default function MissionControl() {
                 </div>
               )}
               {mission.week_goal && (
-                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-4">
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-4 min-w-0">
                   <div className="text-[10px] font-mono uppercase tracking-wider text-primary/80 mb-1">This week</div>
                   <ul className="text-sm space-y-1 mb-2">
                     {Array.isArray(mission.week_goal.milestones) && mission.week_goal.milestones.slice(0, 6).map((m, i) => (
-                      <li key={i} className="flex items-center gap-2">
-                        <span className="text-emerald-400">✓</span>
-                        <span className="truncate">{m}</span>
+                      <li key={i} className="flex items-start gap-2">
+                        <span className="text-emerald-400 mt-0.5">✓</span>
+                        <span className="flex-1 min-w-0 line-clamp-2 break-words" title={m}>{m}</span>
                       </li>
                     ))}
                   </ul>
@@ -497,6 +512,37 @@ export default function MissionControl() {
                       <span className="font-mono">{mission.week_goal.estimated_hours}h</span>
                     </div>
                   )}
+                </div>
+              )}
+              {/* Planner-preview fallback: shows deterministically whenever
+                  the mission has recommendation_insight.likely_next_topics
+                  and no AI enrichment is available for that lane. */}
+              {!mission.tomorrow_preview
+                && Array.isArray(mission.recommendation_insight?.likely_next_topics)
+                && mission.recommendation_insight.likely_next_topics.length > 0 && (
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-4 min-w-0">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-primary/80 mb-1 flex items-center gap-2">
+                    <span>Likely next topics</span>
+                    <span className="text-muted-foreground/70 normal-case tracking-normal">· planner preview</span>
+                  </div>
+                  <ul className="text-sm space-y-1.5 mb-1">
+                    {mission.recommendation_insight.likely_next_topics.slice(0, 4).map((t, i) => (
+                      <li key={t.node_id || i} className="flex items-start gap-2">
+                        <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 border border-primary/25 text-primary/90 shrink-0 mt-0.5">
+                          {t.when || 'next'}
+                        </span>
+                        <span
+                          className="flex-1 min-w-0 line-clamp-2 break-words text-foreground/95"
+                          title={t.label + (t.why ? ` — ${t.why}` : '')}
+                        >
+                          {t.label}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    Future missions remain adaptive — this is a preview, not a guarantee.
+                  </div>
                 </div>
               )}
             </div>

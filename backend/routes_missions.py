@@ -161,6 +161,58 @@ async def _get_recent_mission_node_ids(db, user_id: str, days: int = 5) -> list:
     return node_ids
 
 
+async def _get_recent_skipped_node_ids(db, user_id: str, days: int = 7) -> list:
+    """Return node ids that appeared in missions the learner SKIPPED recently.
+
+    RC1.3.3 · Skipped missions should be *deferred*, not immediately
+    replaced (the previous behaviour blindly picked another node from
+    the same pool). We surface the skipped nodes to the ranking engine
+    so it can apply `_SKIP_DEFERRAL_PENALTY` — a moderate deprioritise
+    that lets the pool rotate before those nodes come back around.
+
+    Reuses `daily_missions` — the only place skip state is durable —
+    so no new collection is required. Bounded to the last week so a
+    node that was skipped once six months ago can still resurface
+    naturally.
+    """
+    since = (datetime.now(timezone.utc).date() - timedelta(days=days)).isoformat()
+    cur = db.daily_missions.find(
+        {"user_id": user_id, "date": {"$gte": since}, "status": "skipped"},
+        {"tasks.node_id": 1, "_id": 0},
+    )
+    node_ids: list = []
+    async for doc in cur:
+        for task in doc.get("tasks", []) or []:
+            if task.get("node_id"):
+                node_ids.append(task["node_id"])
+    return node_ids
+
+
+async def _get_recent_track_ids(db, user_id: str, limit: int = 4) -> list:
+    """Return the ORDERED list of primary tracks (newest last) from the
+    learner's recent missions.
+
+    RC1.3.3 · Powers the same-track fatigue penalty. We deliberately
+    return newest-last so `ranking.score_learning_node` can inspect
+    the tail (``recent_track_ids[-1] == recent_track_ids[-2]``) to
+    detect two consecutive same-track missions without also flagging
+    a single day of same-track continuity.
+
+    Only ``focus_topic`` is read — the same field the mission engine
+    already writes on every mission. No schema change.
+    """
+    cur = db.daily_missions.find(
+        {"user_id": user_id, "focus_topic": {"$ne": None}},
+        {"focus_topic": 1, "date": 1, "_id": 0},
+    ).sort("date", -1).limit(limit)
+    docs = await cur.to_list(length=limit)
+    # docs is newest-first; reverse so we return oldest-first (newest last),
+    # matching the contract documented in `ranking.py`.
+    tracks = [d.get("focus_topic") for d in docs if d.get("focus_topic")]
+    tracks.reverse()
+    return tracks
+
+
 def _progress_node_id_for_task(task: dict) -> str:
     """Return the concrete roadmap node represented by a mission task.
 
@@ -250,6 +302,10 @@ async def _generate_today_mission(db, user_id: str) -> DailyMission:
     recent_feedback = await _get_recent_feedback(db, user_id, hours=36)
     extra_yesterday = await _count_extra_practice_yesterday(db, user_id)
     recent_node_ids = await _get_recent_mission_node_ids(db, user_id)
+    # RC1.3.3 · Adaptive mission consistency signals — cheap lookups from
+    # the existing `daily_missions` collection, no new store.
+    skipped_node_ids = await _get_recent_skipped_node_ids(db, user_id)
+    recent_track_ids = await _get_recent_track_ids(db, user_id)
 
     remaining_curriculum = count_remaining_learning_nodes(get_roadmap(), knowledge_nodes)
     pacing_state = compute_pacing_state(
@@ -277,6 +333,8 @@ async def _generate_today_mission(db, user_id: str) -> DailyMission:
             knowledge_rows=knowledge,
             recent_completions=recent_completions,
             skip_node_ids=skip_ids,
+            skipped_node_ids=skipped_node_ids,
+            recent_track_ids=recent_track_ids,
         )
 
     learning_recommendation = await _pick_learning_recommendation()

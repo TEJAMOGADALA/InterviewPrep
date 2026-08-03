@@ -13,7 +13,7 @@ Verify:
 
 ## Step 2: API Testing
 ```
-BASE=https://ux-stabilize-1.preview.emergentagent.com
+BASE=https://adaptive-hardening.preview.emergentagent.com
 
 # Register
 curl -c cookies.txt -X POST $BASE/api/auth/register \

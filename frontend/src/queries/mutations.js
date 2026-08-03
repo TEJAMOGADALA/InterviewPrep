@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { missionService, roadmapService } from '@/services/mission.service';
 import { qk, nodeAffectedKeys } from '@/queries/keys';
 import { formatApiError } from '@/utils/formatApiError';
+import { useAuth } from '@/contexts/AuthContext';
 
 /**
  * Write hooks (mutations).
@@ -20,8 +21,12 @@ import { formatApiError } from '@/utils/formatApiError';
  * declare what a mutation affects. Adding a new consumer of dashboard
  * data anywhere in the app requires zero changes here.
  *
- * RC1.3.2B Phase 1 — migrating only the mutations touched by the
- * components in scope. Additional mutations will land in Phase 2.
+ * RC1.3.3 · Every mutation now scopes its cache reads/writes to the
+ * authenticated user's id. This is mandatory — otherwise the
+ * optimistic patch produced by an in-flight mutation on User A's
+ * session could leak into User B's cache if a logout raced with the
+ * mutation's onSettled. Cross-user isolation is enforced at the key
+ * layer; the mutation body only needs to pass `userId` through.
  */
 
 // -----------------------------------------------------------------------
@@ -41,8 +46,8 @@ function snapshotKeys(qc, keys) {
 // Patch a task inside the nested dashboard.mission.tasks array without
 // mutating the original — required by React Query's structural sharing
 // so consumers that only care about `dashboard.streak` don't rerender.
-function patchDashboardMission(qc, patcher) {
-  qc.setQueryData(qk.dashboard(), (prev) => {
+function patchDashboardMission(qc, userId, patcher) {
+  qc.setQueryData(qk.dashboard(userId), (prev) => {
     if (!prev || !prev.mission) return prev;
     const next = patcher(prev.mission);
     if (!next || next === prev.mission) return prev;
@@ -65,13 +70,15 @@ function patchDashboardMission(qc, patcher) {
  */
 export function useToggleTask(missionId) {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id;
 
   return useMutation({
     mutationFn: (taskId) => missionService.toggleTask(missionId, taskId),
     onMutate: async (taskId) => {
-      await qc.cancelQueries({ queryKey: qk.dashboard() });
-      const rollback = snapshotKeys(qc, [qk.dashboard()]);
-      patchDashboardMission(qc, (mission) => {
+      await qc.cancelQueries({ queryKey: qk.dashboard(userId) });
+      const rollback = snapshotKeys(qc, [qk.dashboard(userId)]);
+      patchDashboardMission(qc, userId, (mission) => {
         if (mission.status === 'completed' || mission.status === 'skipped') {
           return mission; // backend will reject; no optimistic flip
         }
@@ -96,18 +103,18 @@ export function useToggleTask(missionId) {
       // Server is the source of truth for post-toggle state (revision
       // schedule may have moved, etc.). Replace the mission subtree in
       // place — everything else in the dashboard payload stays cached.
-      patchDashboardMission(qc, () => serverMission);
+      patchDashboardMission(qc, userId, () => serverMission);
     },
     onSettled: (_data, _err, taskId) => {
-      qc.invalidateQueries({ queryKey: qk.dashboard() });
-      qc.invalidateQueries({ queryKey: qk.roadmapTree() });
+      qc.invalidateQueries({ queryKey: qk.dashboard(userId) });
+      qc.invalidateQueries({ queryKey: qk.roadmapTree(userId) });
       // The task's underlying node may have been updated (mastery,
       // status, next_revision). If a DeepTopicPage is open for it,
       // this will silently refetch and swap in fresh data.
-      const dash = qc.getQueryData(qk.dashboard());
+      const dash = qc.getQueryData(qk.dashboard(userId));
       const task = dash?.mission?.tasks?.find((t) => t.id === taskId);
       if (task?.node_id) {
-        qc.invalidateQueries({ queryKey: qk.roadmapNode(task.node_id) });
+        qc.invalidateQueries({ queryKey: qk.roadmapNode(userId, task.node_id) });
       }
     },
   });
@@ -125,13 +132,15 @@ export function useToggleTask(missionId) {
  */
 export function useCompleteMission(missionId) {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id;
 
   return useMutation({
     mutationFn: () => missionService.completeMission(missionId),
     onMutate: async () => {
-      await qc.cancelQueries({ queryKey: qk.dashboard() });
-      const rollback = snapshotKeys(qc, [qk.dashboard()]);
-      patchDashboardMission(qc, (mission) => {
+      await qc.cancelQueries({ queryKey: qk.dashboard(userId) });
+      const rollback = snapshotKeys(qc, [qk.dashboard(userId)]);
+      patchDashboardMission(qc, userId, (mission) => {
         if (mission.status === 'completed') return mission;
         return {
           ...mission,
@@ -151,13 +160,13 @@ export function useCompleteMission(missionId) {
       toast.error(formatApiError(err));
     },
     onSuccess: (serverMission) => {
-      patchDashboardMission(qc, () => serverMission);
+      patchDashboardMission(qc, userId, () => serverMission);
     },
     onSettled: () => {
       // Streak / activity counters / weekly-activity all move — refresh
       // the whole dashboard payload and the weekly-activity view.
-      qc.invalidateQueries({ queryKey: qk.dashboard() });
-      qc.invalidateQueries({ queryKey: qk.weeklyActivity() });
+      qc.invalidateQueries({ queryKey: qk.dashboard(userId) });
+      qc.invalidateQueries({ queryKey: qk.weeklyActivity(userId) });
     },
   });
 }
@@ -171,13 +180,15 @@ export function useCompleteMission(missionId) {
  */
 export function useSkipMission(missionId) {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id;
 
   return useMutation({
     mutationFn: () => missionService.skipMission(missionId),
     onMutate: async () => {
-      await qc.cancelQueries({ queryKey: qk.dashboard() });
-      const rollback = snapshotKeys(qc, [qk.dashboard()]);
-      patchDashboardMission(qc, (mission) => ({
+      await qc.cancelQueries({ queryKey: qk.dashboard(userId) });
+      const rollback = snapshotKeys(qc, [qk.dashboard(userId)]);
+      patchDashboardMission(qc, userId, (mission) => ({
         ...mission,
         status: 'skipped',
       }));
@@ -188,10 +199,10 @@ export function useSkipMission(missionId) {
       toast.error(formatApiError(err));
     },
     onSuccess: (serverMission) => {
-      patchDashboardMission(qc, () => serverMission);
+      patchDashboardMission(qc, userId, () => serverMission);
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: qk.dashboard() });
+      qc.invalidateQueries({ queryKey: qk.dashboard(userId) });
     },
   });
 }
@@ -202,10 +213,10 @@ export function useSkipMission(missionId) {
 
 /**
  * Shared patcher for the deep-node view. Merges `patch.progress` into
- * whatever cache already holds `qk.roadmapNode(nodeId)`.
+ * whatever cache already holds `qk.roadmapNode(userId, nodeId)`.
  */
-function patchNodeProgress(qc, nodeId, progressPatch) {
-  qc.setQueryData(qk.roadmapNode(nodeId), (prev) => {
+function patchNodeProgress(qc, userId, nodeId, progressPatch) {
+  qc.setQueryData(qk.roadmapNode(userId, nodeId), (prev) => {
     if (!prev || !prev.node) return prev;
     return {
       ...prev,
@@ -226,13 +237,15 @@ function patchNodeProgress(qc, nodeId, progressPatch) {
  */
 export function useSetNodeStatus() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id;
 
   return useMutation({
     mutationFn: ({ nodeId, status }) => roadmapService.setStatus(nodeId, status),
     onMutate: async ({ nodeId, status }) => {
-      await qc.cancelQueries({ queryKey: qk.roadmapNode(nodeId) });
-      const rollback = snapshotKeys(qc, [qk.roadmapNode(nodeId)]);
-      patchNodeProgress(qc, nodeId, { status });
+      await qc.cancelQueries({ queryKey: qk.roadmapNode(userId, nodeId) });
+      const rollback = snapshotKeys(qc, [qk.roadmapNode(userId, nodeId)]);
+      patchNodeProgress(qc, userId, nodeId, { status });
       return { rollback };
     },
     onError: (err, _v, ctx) => {
@@ -242,8 +255,8 @@ export function useSetNodeStatus() {
     onSettled: (_data, _err, { nodeId }) => {
       // Server response contains the canonical progress — refresh the
       // deep view + everything that renders progress overlays.
-      nodeAffectedKeys(nodeId).forEach((k) => qc.invalidateQueries({ queryKey: k }));
-      qc.invalidateQueries({ queryKey: qk.dashboard() });
+      nodeAffectedKeys(userId, nodeId).forEach((k) => qc.invalidateQueries({ queryKey: k }));
+      qc.invalidateQueries({ queryKey: qk.dashboard(userId) });
     },
   });
 }
@@ -257,13 +270,15 @@ export function useSetNodeStatus() {
  */
 export function useSetNodeConfidence() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id;
 
   return useMutation({
     mutationFn: ({ nodeId, value }) => roadmapService.setConfidence(nodeId, value),
     onMutate: async ({ nodeId, value }) => {
-      await qc.cancelQueries({ queryKey: qk.roadmapNode(nodeId) });
-      const rollback = snapshotKeys(qc, [qk.roadmapNode(nodeId)]);
-      patchNodeProgress(qc, nodeId, { confidence: value });
+      await qc.cancelQueries({ queryKey: qk.roadmapNode(userId, nodeId) });
+      const rollback = snapshotKeys(qc, [qk.roadmapNode(userId, nodeId)]);
+      patchNodeProgress(qc, userId, nodeId, { confidence: value });
       return { rollback };
     },
     onError: (err, _v, ctx) => {
@@ -271,8 +286,8 @@ export function useSetNodeConfidence() {
       toast.error(formatApiError(err));
     },
     onSettled: (_data, _err, { nodeId }) => {
-      qc.invalidateQueries({ queryKey: qk.roadmapNode(nodeId) });
-      qc.invalidateQueries({ queryKey: qk.roadmapTree() });
+      qc.invalidateQueries({ queryKey: qk.roadmapNode(userId, nodeId) });
+      qc.invalidateQueries({ queryKey: qk.roadmapTree(userId) });
     },
   });
 }
@@ -286,13 +301,15 @@ export function useSetNodeConfidence() {
  */
 export function useRecordAttempt() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id;
 
   return useMutation({
     mutationFn: ({ nodeId, minutes }) => roadmapService.recordAttempt(nodeId, minutes),
     onMutate: async ({ nodeId, minutes }) => {
-      await qc.cancelQueries({ queryKey: qk.roadmapNode(nodeId) });
-      const rollback = snapshotKeys(qc, [qk.roadmapNode(nodeId)]);
-      qc.setQueryData(qk.roadmapNode(nodeId), (prev) => {
+      await qc.cancelQueries({ queryKey: qk.roadmapNode(userId, nodeId) });
+      const rollback = snapshotKeys(qc, [qk.roadmapNode(userId, nodeId)]);
+      qc.setQueryData(qk.roadmapNode(userId, nodeId), (prev) => {
         if (!prev) return prev;
         const activity = Array.isArray(prev.activity) ? prev.activity : [];
         return {
@@ -316,8 +333,8 @@ export function useRecordAttempt() {
       toast.error(formatApiError(err));
     },
     onSettled: (_data, _err, { nodeId }) => {
-      qc.invalidateQueries({ queryKey: qk.roadmapNode(nodeId) });
-      qc.invalidateQueries({ queryKey: qk.weeklyActivity() });
+      qc.invalidateQueries({ queryKey: qk.roadmapNode(userId, nodeId) });
+      qc.invalidateQueries({ queryKey: qk.weeklyActivity(userId) });
     },
   });
 }
@@ -331,13 +348,15 @@ export function useRecordAttempt() {
  */
 export function useSaveNodeNotes() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id;
 
   return useMutation({
     mutationFn: ({ nodeId, notes }) => roadmapService.saveNotes(nodeId, notes),
     onMutate: async ({ nodeId, notes }) => {
-      await qc.cancelQueries({ queryKey: qk.roadmapNode(nodeId) });
-      const rollback = snapshotKeys(qc, [qk.roadmapNode(nodeId)]);
-      qc.setQueryData(qk.roadmapNode(nodeId), (prev) => {
+      await qc.cancelQueries({ queryKey: qk.roadmapNode(userId, nodeId) });
+      const rollback = snapshotKeys(qc, [qk.roadmapNode(userId, nodeId)]);
+      qc.setQueryData(qk.roadmapNode(userId, nodeId), (prev) => {
         if (!prev || !prev.node) return prev;
         return {
           ...prev,
@@ -351,7 +370,7 @@ export function useSaveNodeNotes() {
       toast.error(formatApiError(err));
     },
     onSettled: (_data, _err, { nodeId }) => {
-      qc.invalidateQueries({ queryKey: qk.roadmapNode(nodeId) });
+      qc.invalidateQueries({ queryKey: qk.roadmapNode(userId, nodeId) });
     },
   });
 }
@@ -367,15 +386,17 @@ export function useSaveNodeNotes() {
  */
 export function useToggleBookmark() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id;
 
   return useMutation({
     mutationFn: (nodeId) => roadmapService.toggleBookmark(nodeId),
     onMutate: async (nodeId) => {
-      await qc.cancelQueries({ queryKey: qk.roadmapNode(nodeId) });
-      const rollback = snapshotKeys(qc, [qk.roadmapNode(nodeId), qk.roadmapTree()]);
-      const current = qc.getQueryData(qk.roadmapNode(nodeId))?.node?.progress?.bookmarked;
-      patchNodeProgress(qc, nodeId, { bookmarked: !current });
-      patchTreeNode(qc, nodeId, (prog) => ({ ...prog, bookmarked: !prog.bookmarked }));
+      await qc.cancelQueries({ queryKey: qk.roadmapNode(userId, nodeId) });
+      const rollback = snapshotKeys(qc, [qk.roadmapNode(userId, nodeId), qk.roadmapTree(userId)]);
+      const current = qc.getQueryData(qk.roadmapNode(userId, nodeId))?.node?.progress?.bookmarked;
+      patchNodeProgress(qc, userId, nodeId, { bookmarked: !current });
+      patchTreeNode(qc, userId, nodeId, (prog) => ({ ...prog, bookmarked: !prog.bookmarked }));
       return { rollback };
     },
     onError: (err, _v, ctx) => {
@@ -384,23 +405,25 @@ export function useToggleBookmark() {
     },
     onSuccess: (res, nodeId) => {
       // Server returns { bookmarked } — snap to the authoritative value.
-      patchNodeProgress(qc, nodeId, { bookmarked: !!res?.bookmarked });
-      patchTreeNode(qc, nodeId, (prog) => ({ ...prog, bookmarked: !!res?.bookmarked }));
+      patchNodeProgress(qc, userId, nodeId, { bookmarked: !!res?.bookmarked });
+      patchTreeNode(qc, userId, nodeId, (prog) => ({ ...prog, bookmarked: !!res?.bookmarked }));
     },
   });
 }
 
 export function useToggleFavorite() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id;
 
   return useMutation({
     mutationFn: (nodeId) => roadmapService.toggleFavorite(nodeId),
     onMutate: async (nodeId) => {
-      await qc.cancelQueries({ queryKey: qk.roadmapNode(nodeId) });
-      const rollback = snapshotKeys(qc, [qk.roadmapNode(nodeId), qk.roadmapTree()]);
-      const current = qc.getQueryData(qk.roadmapNode(nodeId))?.node?.progress?.favorite;
-      patchNodeProgress(qc, nodeId, { favorite: !current });
-      patchTreeNode(qc, nodeId, (prog) => ({ ...prog, favorite: !prog.favorite }));
+      await qc.cancelQueries({ queryKey: qk.roadmapNode(userId, nodeId) });
+      const rollback = snapshotKeys(qc, [qk.roadmapNode(userId, nodeId), qk.roadmapTree(userId)]);
+      const current = qc.getQueryData(qk.roadmapNode(userId, nodeId))?.node?.progress?.favorite;
+      patchNodeProgress(qc, userId, nodeId, { favorite: !current });
+      patchTreeNode(qc, userId, nodeId, (prog) => ({ ...prog, favorite: !prog.favorite }));
       return { rollback };
     },
     onError: (err, _v, ctx) => {
@@ -408,8 +431,8 @@ export function useToggleFavorite() {
       toast.error(formatApiError(err));
     },
     onSuccess: (res, nodeId) => {
-      patchNodeProgress(qc, nodeId, { favorite: !!res?.favorite });
-      patchTreeNode(qc, nodeId, (prog) => ({ ...prog, favorite: !!res?.favorite }));
+      patchNodeProgress(qc, userId, nodeId, { favorite: !!res?.favorite });
+      patchTreeNode(qc, userId, nodeId, (prog) => ({ ...prog, favorite: !!res?.favorite }));
     },
   });
 }
@@ -425,8 +448,8 @@ export function useToggleFavorite() {
  * happy — sibling branches remain reference-equal so unrelated
  * subtrees don't re-render.
  */
-function patchTreeNode(qc, nodeId, updater) {
-  qc.setQueryData(qk.roadmapTree(), (prev) => {
+function patchTreeNode(qc, userId, nodeId, updater) {
+  qc.setQueryData(qk.roadmapTree(userId), (prev) => {
     if (!prev || !Array.isArray(prev.tracks)) return prev;
     let changed = false;
 

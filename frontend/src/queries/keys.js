@@ -10,37 +10,50 @@
  * id (e.g. per-node) while still remaining stable references. Never
  * inline a key inline in a component — always call `qk.…()`.
  *
- * NOTE (RC1.3.2B Phase 1): We only need dashboard / mission / roadmap
- * keys for the components migrated in Phase 1. Weekly-activity and
- * analytics keys are declared here anyway so Phase 2 can pick them up
- * without a second refactor.
+ * RC1.3.3 · User-scoped cache isolation:
+ *   Every user-scoped key now carries the authenticated user id as its
+ *   FIRST segment. React Query's cache is a Map keyed by the JSON
+ *   representation of the key array, so ['user', 'A', 'dashboard'] and
+ *   ['user', 'B', 'dashboard'] are two disjoint cache entries. When
+ *   User B signs in after User A, they cannot observe User A's stale
+ *   payload for even a single render, because they read from a
+ *   different key. `AuthContext` additionally calls `queryClient.clear()`
+ *   on logout / user-id change as belt-and-braces defense.
+ *
+ *   `userId` may be `null` — the invariant is that queries only enable
+ *   themselves when a user is present, so a null id is effectively a
+ *   no-op cache namespace.
  */
+
+const USER = 'user';
 
 export const qk = {
   // Dashboard payload (streak, readiness, mission-of-the-day summary,
   // revision count, knowledge progress, recent activity, week goal).
   // Read by: Topbar, MissionControl, CommandAnalytics.
-  dashboard: () => ['dashboard'],
+  dashboard: (userId) => [USER, userId ?? 'anon', 'dashboard'],
 
   // Today's mission — same underlying network call as `dashboard`
   // (server returns it nested). Kept as a distinct key ONLY when a
   // consumer specifically wants the mission sub-tree; use
   // `useDashboard()` for the general case.
-  missionToday: () => ['dashboard', 'today'],
+  missionToday: (userId) => [USER, userId ?? 'anon', 'dashboard', 'today'],
 
-  // Weekly-activity roll-up (RC1.3 endpoint). Kept for Phase 2 wiring.
-  weeklyActivity: () => ['dashboard', 'weekly-activity'],
+  // Weekly-activity roll-up (RC1.3 endpoint).
+  weeklyActivity: (userId) => [USER, userId ?? 'anon', 'dashboard', 'weekly-activity'],
 
   // Full roadmap tree with progress overlay (roadmapService.tree()).
-  roadmapTree: () => ['roadmap', 'tree'],
+  // Progress overlay is per-user so the key must be user-scoped, even
+  // though the roadmap structure itself is global.
+  roadmapTree: (userId) => [USER, userId ?? 'anon', 'roadmap', 'tree'],
 
   // Domain-level summary (roadmapService.summary()) — used by
   // MissionControl right rail.
-  roadmapSummary: () => ['roadmap', 'summary'],
+  roadmapSummary: (userId) => [USER, userId ?? 'anon', 'roadmap', 'summary'],
 
   // Deep node view (DeepTopicPage). Keyed by node id so multiple
   // nodes can be cached side-by-side (e.g. tab switching).
-  roadmapNode: (nodeId) => ['roadmap', 'node', nodeId],
+  roadmapNode: (userId, nodeId) => [USER, userId ?? 'anon', 'roadmap', 'node', nodeId],
 };
 
 /**
@@ -48,9 +61,18 @@ export const qk = {
  * that node's progress. Used by mutations that need to invalidate a
  * node from multiple angles (individual node + the aggregated tree).
  */
-export function nodeAffectedKeys(nodeId) {
+export function nodeAffectedKeys(userId, nodeId) {
   return [
-    qk.roadmapNode(nodeId),
-    qk.roadmapTree(),
+    qk.roadmapNode(userId, nodeId),
+    qk.roadmapTree(userId),
   ];
+}
+
+/**
+ * Return the prefix that matches every cache entry for a given user.
+ * Used by AuthContext to remove exactly that user's cached data
+ * without touching global / anonymous entries.
+ */
+export function userScopePrefix(userId) {
+  return [USER, userId ?? 'anon'];
 }

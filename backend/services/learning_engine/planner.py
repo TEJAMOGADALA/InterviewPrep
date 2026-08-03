@@ -208,6 +208,8 @@ async def get_today_learning_node(
     knowledge_rows: Optional[list] = None,
     recent_completions: Optional[Iterable[dict]] = None,
     skip_node_ids: Optional[Iterable[str]] = None,
+    skipped_node_ids: Optional[Iterable[str]] = None,
+    recent_track_ids: Optional[Iterable[str]] = None,
 ) -> Optional[dict]:
     """Return the best learning recommendation for the user.
 
@@ -237,17 +239,32 @@ async def get_today_learning_node(
     RC1.3.2A additions (all optional; every existing caller keeps identical
     output when not passing them):
 
-    * ``onboarding`` — enables the per-company readiness estimate.
+    * ``onboarding`` — enables the per-company readiness estimate AND (RC1.3.3)
+      the foundation-first bias for beginners.
     * ``knowledge_rows`` — enables the per-company readiness estimate.
     * ``recent_completions`` — enables learning continuity signal.
     * ``skip_node_ids`` — used by the orchestrator on a retry attempt
       after the validator flagged the first pick.
+
+    RC1.3.3 additions (all optional; existing callers keep identical
+    output when not passing them):
+
+    * ``skipped_node_ids`` — node ids the learner actively SKIPPED in
+      recent missions. Passed straight through to ranking so those
+      nodes get a deferral penalty (never a permanent ban).
+    * ``recent_track_ids`` — the ordered list of tracks from the
+      learner's recent missions (newest last). Feeds the same-track
+      fatigue penalty; ignored for beginner experience bands.
     """
     progress_rows = await _load_progress_rows(user_id, db)
     pacing_state = pacing_state or {}
     urgency = float(pacing_state.get("urgency", 0.0))
     progress_map = {row.get("node_id"): row for row in progress_rows if row.get("node_id")}
     skip = set(skip_node_ids or ())
+
+    # RC1.3.3 · learner meta signals — cheap, always safe to compute.
+    position = (onboarding or {}).get("current_position") if onboarding else None
+    onboarding_scores = (onboarding or {}).get("self_assessment") if onboarding else None
 
     # ---- Continuity chain from recent history ---------------------------
     chain = chain_from_history(recent_completions or [])
@@ -256,6 +273,10 @@ async def get_today_learning_node(
         breakdown = score_learning_node(
             node, progress, target_companies=target_companies, urgency=urgency,
             progress_map=progress_map, recent_node_ids=recent_node_ids,
+            skipped_node_ids=skipped_node_ids,
+            recent_track_ids=recent_track_ids,
+            position=position,
+            onboarding_scores=onboarding_scores,
         )
         forecast = forecast_completion(pacing_state, completed_dates=completed_dates)
         cont = continuity_score(node, chain)
@@ -303,6 +324,10 @@ async def get_today_learning_node(
     ranked_nodes = rank_learning_nodes(
         unlocked_nodes, progress_map, target_companies=target_companies, urgency=urgency,
         recent_node_ids=recent_node_ids,
+        skipped_node_ids=skipped_node_ids,
+        recent_track_ids=recent_track_ids,
+        position=position,
+        onboarding_scores=onboarding_scores,
     )
     if not ranked_nodes:
         return None
@@ -317,6 +342,10 @@ async def get_today_learning_node(
             top_node, progress_map.get(top_node.get("id"), {}),
             target_companies=target_companies, urgency=urgency,
             progress_map=progress_map, recent_node_ids=recent_node_ids,
+            skipped_node_ids=skipped_node_ids,
+            recent_track_ids=recent_track_ids,
+            position=position,
+            onboarding_scores=onboarding_scores,
         )
         top_score = top_breakdown.get("total_score", 0.0) or 0.0
         for candidate in ranked_nodes[1:4]:
@@ -324,6 +353,10 @@ async def get_today_learning_node(
                 candidate, progress_map.get(candidate.get("id"), {}),
                 target_companies=target_companies, urgency=urgency,
                 progress_map=progress_map, recent_node_ids=recent_node_ids,
+                skipped_node_ids=skipped_node_ids,
+                recent_track_ids=recent_track_ids,
+                position=position,
+                onboarding_scores=onboarding_scores,
             )
             cand_score = cb.get("total_score", 0.0) or 0.0
             if top_score <= 0 or cand_score / top_score < 0.95:
