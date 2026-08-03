@@ -13,8 +13,11 @@ import { cn } from '@/lib/utils';
  */
 const STATUS_FILTERS = [
   { key: 'completed',     label: 'Completed' },
+  { key: 'mastered',      label: 'Mastered' },
+  { key: 'in_progress',   label: 'In Progress' },
   { key: 'incomplete',    label: 'Incomplete' },
   { key: 'revision_due',  label: 'Revision Due' },
+  { key: 'weak',          label: 'Weak' },
   { key: 'bookmarked',    label: 'Bookmarked' },
   { key: 'favorite',      label: 'Favorite' },
 ];

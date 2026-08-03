@@ -24,6 +24,7 @@ import { StatusBadge } from '@/components/progress/StatusBadge';
 import { NodeActions } from '@/components/progress/NodeActions';
 import { AIContentTabs } from '@/components/knowledge/AIContentTabs';
 import { AIInterviewCards } from '@/components/knowledge/AIInterviewCards';
+import { useRecentlyViewed } from '@/hooks/useRecentlyViewed';
 
 const BUCKET_LABEL = {
   green:  { label: 'Fresh',   cls: 'text-emerald-300 border-emerald-400/30 bg-emerald-400/10' },
@@ -67,6 +68,18 @@ export default function DeepTopicPage() {
       .then((o) => setTargetCompanies(o?.target_companies || []))
       .catch(() => {});
   }, []);
+
+  // RC1.3.4 · Track "recently viewed" for the Knowledge Workspace.
+  // Persisted to a user-scoped localStorage key by `useRecentlyViewed`,
+  // so this is a purely local UX signal — no backend write, no new
+  // endpoint. We record after the node payload has actually loaded so
+  // we don't accidentally track a broken/404 topic.
+  const { record: recordRecentlyViewed } = useRecentlyViewed();
+  useEffect(() => {
+    if (nodeId && data?.node) {
+      recordRecentlyViewed(nodeId);
+    }
+  }, [nodeId, data?.node, recordRecentlyViewed]);
 
   const setStatusM = useSetNodeStatus();
   const setConfidenceM = useSetNodeConfidence();

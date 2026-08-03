@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { dashboardService, missionService, roadmapService } from '@/services/mission.service';
+import { dashboardService, missionService, roadmapService, revisionService } from '@/services/mission.service';
 import { qk } from '@/queries/keys';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -74,6 +74,30 @@ export function useRoadmapNode(nodeId, options = {}) {
     queryKey: qk.roadmapNode(userId, nodeId),
     queryFn: () => roadmapService.node(nodeId),
     enabled: !!userId && !!nodeId,
+    ...options,
+  });
+}
+
+// ---------- Revisions --------------------------------------------------
+
+/**
+ * Canonical revision queue read (RC1.3.4).
+ *
+ * Backed by `GET /api/revisions/queue?due_only=false` — the same
+ * endpoint the Mission Control widget already consumes. Adding a hook
+ * gives the new Knowledge Base "Revision Due" view a shared cache
+ * entry: opening that view after Mission Control does NOT trigger a
+ * second network round-trip, and any mutation that already
+ * invalidates `qk.dashboard(userId)` also updates the revision list
+ * as of the same tick.
+ */
+export function useRevisions(options = {}) {
+  const { user } = useAuth();
+  const userId = user?.id;
+  return useQuery({
+    queryKey: qk.revisions(userId),
+    queryFn: () => revisionService.getQueue(),
+    enabled: !!userId,
     ...options,
   });
 }

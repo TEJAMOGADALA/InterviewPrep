@@ -102,9 +102,29 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "PrepOS RC1.3.1 – Foundation Hardening. Verify: (A) mission completion is immutable — once a mission is `completed`, tasks cannot be toggled and the mission cannot regress to `in_progress`; the complete_mission endpoint is idempotent and does not double-fire streaks/notifications; (B) each task completion immediately updates knowledge state (mastery/confidence/weakness/revision) — validate via the existing toggle_task path (already implemented; verify no regressions); (C) Profile removed from sidebar nav but /app/profile route still works; (D) company_importance walks the full Track → Module → Topic → LearningNode hierarchy — deeper overrides win, unknown levels fall back to track."
+user_problem_statement: "PrepOS RC1.3.4 – Knowledge Experience & Learning Workspace. Extend the existing Knowledge Base into a full learning workspace with seven lenses (All Topics, Continue Learning, Bookmarks, Favorites, Weak Topics, Revision Due, Recently Viewed). All lenses derive from data already exposed by `/api/roadmap`, `/api/roadmap/summary` and `/api/revisions/queue` — no new endpoint, no new Mongo collection, no schema change. Bookmark/Favorite toggles reuse the existing RC1.3.2B mutation hooks (`useToggleBookmark`, `useToggleFavorite`) so a single toggle updates deep node, tree, workspace list, and Mission Control together. Recently-viewed tracking is a user-scoped localStorage list (`prepos:recently-viewed:v1:<userId>`) recorded when DeepTopicPage loads a node — cross-user isolation matches RC1.3.3 React Query key scheme. `useProgressTree` is now a thin backwards-compat shim over `useRoadmapTree`, removing a hidden global-cache leak. Stat strip reuses `useRoadmapSummary` — no extra API call. Search + filters remain client-side and stack on top of the active view. Weak-topic filter reuses the same signals the adaptive planner already uses (confidence, weakness_score, revision_due) — no new algorithm."
 
 backend:
+  - task: "RC1.3.4 · Knowledge workspace — backend surface unchanged"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/routes_roadmap.py, /app/backend/routes_missions.py"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          RC1.3.4 makes ZERO backend changes. Every workspace lens is
+          a client-side derivation from three existing endpoints:
+            • GET /api/roadmap            → tree + progress overlay
+            • GET /api/roadmap/summary    → counts (bookmarked, favorite, revision_due)
+            • GET /api/revisions/queue    → segmented Overdue/Today/Tomorrow/Upcoming
+          No new APIs, no schema changes, no new Mongo collections.
+          Regression risk on backend: none. Route registration and
+          request/response contracts are byte-identical to RC1.3.3.
+
   - task: "RC1.3.2A · Composition planner (composition.py)"
     implemented: true
     working: "NA"
@@ -594,6 +614,61 @@ backend:
             Overall Confidence    : HIGH
 
 frontend:
+  - task: "RC1.3.4 · Knowledge Workspace (7 lenses over existing endpoints)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/pages/knowledge/KnowledgeBase.jsx, /app/frontend/src/components/knowledge/{KnowledgeViewTabs,KnowledgeStats,KnowledgeCardList,knowledgeViews}.js, /app/frontend/src/hooks/useRecentlyViewed.js, /app/frontend/src/hooks/useProgressTree.js, /app/frontend/src/queries/{keys.js,hooks.js,mutations.js}, /app/frontend/src/pages/knowledge/DeepTopicPage.jsx, /app/frontend/src/components/progress/FilterChips.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Extended KB into a full workspace with seven lenses using
+          existing data sources exclusively. Highlights:
+
+            • useProgressTree is now a backwards-compat shim over
+              useRoadmapTree — closes a hidden global localStorage
+              cache leak (was NOT user-scoped) discovered during
+              inspection. matchNode() predicate now also handles
+              'weak', 'in_progress', 'mastered' filter keys so the
+              chip filters and workspace lenses share one predicate.
+
+            • KnowledgeViewTabs — segmented control with count badges,
+              wired to purely-client filtering. Zero extra network
+              calls when switching lenses (same tree/summary/revisions
+              cache entries).
+
+            • knowledgeViews.js — pure reducers for bookmarkView /
+              favoriteView / weakView / continueLearningView /
+              recentlyViewedView / revisionDueGroups. Weak-topic
+              ranking reuses the same signals the adaptive planner
+              consumes (confidence + weakness_score + revision_due) —
+              no new algorithm.
+
+            • useRecentlyViewed — user-scoped localStorage list keyed
+              by `prepos:recently-viewed:v1:<userId>`. Records from
+              DeepTopicPage on mount. Anonymous callers get no
+              persistence. Cross-tab sync via the 'storage' event.
+
+            • KnowledgeStats — six-stat strip reading useRoadmapSummary
+              (existing endpoint). Zero additional API calls.
+
+            • useRevisions — new React Query hook wrapping
+              /api/revisions/queue with the same user-scoped key
+              scheme. Toggle-task / status-change mutations now
+              invalidate it too so the Revision Due lens always
+              matches Mission Control.
+
+            • DeepTopicPage records the opened node into
+              useRecentlyViewed as soon as the payload loads.
+
+          Zero backend changes. Zero schema changes. Zero new
+          collections. Every optimistic update, cache invalidation,
+          filter chip, and route continues to work as before. Frontend
+          compiles cleanly (lint + webpack).
+
   - task: "Frontend RC1.3.1 UI hardening (mission lock, sidebar Profile removed, avatar sync)"
     implemented: true
     working: "NA"

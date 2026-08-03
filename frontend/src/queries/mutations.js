@@ -108,6 +108,7 @@ export function useToggleTask(missionId) {
     onSettled: (_data, _err, taskId) => {
       qc.invalidateQueries({ queryKey: qk.dashboard(userId) });
       qc.invalidateQueries({ queryKey: qk.roadmapTree(userId) });
+      qc.invalidateQueries({ queryKey: qk.revisions(userId) });
       // The task's underlying node may have been updated (mastery,
       // status, next_revision). If a DeepTopicPage is open for it,
       // this will silently refetch and swap in fresh data.
@@ -257,6 +258,7 @@ export function useSetNodeStatus() {
       // deep view + everything that renders progress overlays.
       nodeAffectedKeys(userId, nodeId).forEach((k) => qc.invalidateQueries({ queryKey: k }));
       qc.invalidateQueries({ queryKey: qk.dashboard(userId) });
+      qc.invalidateQueries({ queryKey: qk.revisions(userId) });
     },
   });
 }

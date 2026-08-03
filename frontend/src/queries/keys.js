@@ -54,6 +54,13 @@ export const qk = {
   // Deep node view (DeepTopicPage). Keyed by node id so multiple
   // nodes can be cached side-by-side (e.g. tab switching).
   roadmapNode: (userId, nodeId) => [USER, userId ?? 'anon', 'roadmap', 'node', nodeId],
+
+  // Revision queue (RC1.3.4) — canonical `/api/revisions/queue?due_only=false`
+  // wrapper. Used by Mission Control's revision widget AND by the new
+  // Knowledge Base "Revision Due" view. Same server payload, one cache
+  // entry, invalidated by every mutation that touches
+  // `next_revision` (task toggle, complete_mission, node status change).
+  revisions: (userId) => [USER, userId ?? 'anon', 'revisions', 'queue'],
 };
 
 /**
