@@ -166,7 +166,6 @@ export default function DeepTopicPage() {
                   nodeId={node.id}
                   bookmarked={progress.bookmarked}
                   favorite={progress.favorite}
-                  onChange={load}
                 />
               </div>
             </div>

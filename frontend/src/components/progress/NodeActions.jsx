@@ -1,43 +1,56 @@
-import { useState } from 'react';
 import { Bookmark, Star } from 'lucide-react';
-import { toast } from 'sonner';
-import { roadmapService } from '@/services/mission.service';
+import { useToggleBookmark, useToggleFavorite } from '@/queries/mutations';
 import { cn } from '@/lib/utils';
 
 /**
  * Bookmark ("save for later") + Favorite ("star for quick access") toggles.
- * Optimistic: state flips instantly and rolls back on error.
  *
- * onChange(node_id, { bookmarked, favorite }) fires so parent caches can
- * refresh derived counts without a full refetch.
+ * RC1.3.3 · Migrated to the React Query mutation hooks introduced in
+ * RC1.3.2B (`useToggleBookmark` / `useToggleFavorite`). This gives us
+ * three properties for free:
+ *
+ *   1. Optimistic UI — the mutation flips `progress.bookmarked` /
+ *      `progress.favorite` in BOTH the deep-node cache and the
+ *      matching leaf of the roadmap tree cache before the network
+ *      round-trip. No local `useState` mirror needed.
+ *   2. Automatic rollback on failure — the mutation restores the
+ *      snapshot and surfaces a toast, so we no longer need to track
+ *      `prev` ourselves.
+ *   3. Cache invalidation — every consumer of the deep-node cache
+ *      re-renders with the new value automatically. This is what
+ *      the old `onChange` callback (whose target `load` was removed
+ *      during the migration) used to do imperatively; React Query
+ *      now handles it declaratively.
+ *
+ * `bookmarked` / `favorite` come straight from the parent's cached
+ * roadmap-node payload, so they always reflect the optimistic (or
+ * server-confirmed) state without a second source of truth. The
+ * `onChange` prop is preserved for backwards-compatibility but is
+ * now optional — legacy callers that supplied one will still be
+ * notified; new callers can omit it entirely.
  */
 export function NodeActions({ nodeId, bookmarked = false, favorite = false, onChange }) {
-  const [bm, setBm] = useState(!!bookmarked);
-  const [fav, setFav] = useState(!!favorite);
-  const [pending, setPending] = useState(false);
+  const toggleBookmarkM = useToggleBookmark();
+  const toggleFavoriteM = useToggleFavorite();
+  const bm = !!bookmarked;
+  const fav = !!favorite;
+  const pending = toggleBookmarkM.isPending || toggleFavoriteM.isPending;
 
-  const toggle = async (kind) => {
+  const toggle = (kind) => {
     if (pending) return;
-    setPending(true);
-    const prev = kind === 'bookmark' ? bm : fav;
-    // Optimistic flip.
-    if (kind === 'bookmark') setBm(!prev);
-    else setFav(!prev);
-    try {
-      const res = kind === 'bookmark'
-        ? await roadmapService.toggleBookmark(nodeId)
-        : await roadmapService.toggleFavorite(nodeId);
-      const next = kind === 'bookmark' ? res.bookmarked : res.favorite;
-      if (kind === 'bookmark') setBm(next);
-      else setFav(next);
-      onChange?.(nodeId, { bookmarked: kind === 'bookmark' ? next : bm, favorite: kind === 'favorite' ? next : fav });
-    } catch (e) {
-      if (kind === 'bookmark') setBm(prev);
-      else setFav(prev);
-      toast.error(`Could not update ${kind}`);
-    } finally {
-      setPending(false);
-    }
+    const mutation = kind === 'bookmark' ? toggleBookmarkM : toggleFavoriteM;
+    mutation.mutate(nodeId, {
+      onSuccess: (res) => {
+        // Preserve the legacy `onChange` contract so any parent still
+        // wiring it in (there are none left in tree, but the signature
+        // is safe to keep for external consumers) receives the
+        // server-confirmed values.
+        onChange?.(nodeId, {
+          bookmarked: kind === 'bookmark' ? !!res?.bookmarked : bm,
+          favorite:   kind === 'favorite' ? !!res?.favorite   : fav,
+        });
+      },
+    });
   };
 
   return (
@@ -46,6 +59,7 @@ export function NodeActions({ nodeId, bookmarked = false, favorite = false, onCh
         type="button"
         onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggle('bookmark'); }}
         aria-pressed={bm}
+        disabled={pending}
         title={bm ? 'Remove bookmark' : 'Bookmark for later'}
         data-testid={`node-bookmark-${nodeId}`}
         className={cn(
@@ -61,6 +75,7 @@ export function NodeActions({ nodeId, bookmarked = false, favorite = false, onCh
         type="button"
         onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggle('favorite'); }}
         aria-pressed={fav}
+        disabled={pending}
         title={fav ? 'Unfavorite' : 'Star for quick access'}
         data-testid={`node-favorite-${nodeId}`}
         className={cn(
