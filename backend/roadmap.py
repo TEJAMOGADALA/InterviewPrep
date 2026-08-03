@@ -80,10 +80,79 @@ class RoadmapEngine:
         for track in self._raw["tracks"]:
             track_id = track.get("id")
             _flatten(track, parent_id=None, depth=0, out=self._index, type_hint="track", track_id=track_id)
+        self._propagate_container_prerequisites()
         for node in self._index.values():
             pat = node.get("pattern")
             if pat:
                 self._by_pattern.setdefault(pat, []).append(node)
+
+    def _resolve_to_entry_leaf(self, node_id: Optional[str]) -> Optional[str]:
+        """Resolve any id to its first real leaf by walking the first child
+        repeatedly (mirrors `scripts/generate_roadmap.py::_leaf_entry_id`)."""
+        seen: set = set()
+        current = node_id
+        while current:
+            if current in seen or current not in self._index:
+                return None
+            seen.add(current)
+            children = self._index[current].get("child_ids") or []
+            if not children:
+                return current
+            current = children[0]
+        return None
+
+    def _propagate_container_prerequisites(self) -> None:
+        """Runtime parity fix (RC1.3.6A) for a container-prerequisite gap in
+        the currently-loaded `data/roadmap_v1.json`: it was generated before
+        `scripts/generate_roadmap.py::_propagate_container_prerequisites` was
+        fixed to gate EVERY descendant leaf instead of only the first-child
+        chain, so most non-entry branches under a container that declares
+        `prerequisites` (e.g. 5 of `dsa.dp.core`'s 6 branches) were left
+        without them and are falsely treated as unlocked from day one.
+
+        This mirrors the fixed generator algorithm in-memory, once, at
+        singleton construction — so behavior is correct immediately without
+        touching the JSON file. A future roadmap regeneration bakes the same
+        result directly into the data and this pass becomes a no-op (every
+        id it would add is already present, so nothing changes on re-run).
+        Purely additive: only appends ids to a leaf's own `prerequisites`
+        list, never removes any, never duplicates, never lets a leaf list
+        itself.
+        """
+        for node in list(self._index.values()):
+            container_prereqs = node.get("prerequisites") or []
+            child_ids = node.get("child_ids") or []
+            if not child_ids or not container_prereqs:
+                continue
+            leaf_ids: List[str] = []
+            seen: set = set()
+            stack = list(child_ids)
+            while stack:
+                cid = stack.pop()
+                if cid in seen or cid not in self._index:
+                    continue
+                seen.add(cid)
+                grandchildren = self._index[cid].get("child_ids") or []
+                if grandchildren:
+                    stack.extend(grandchildren)
+                else:
+                    leaf_ids.append(cid)
+            if not leaf_ids:
+                continue
+            resolved_prereqs: List[str] = []
+            for pid in container_prereqs:
+                resolved = self._resolve_to_entry_leaf(pid) or pid
+                if resolved not in resolved_prereqs:
+                    resolved_prereqs.append(resolved)
+            for leaf_id in leaf_ids:
+                leaf = self._index.get(leaf_id)
+                if leaf is None:
+                    continue
+                existing = list(leaf.get("prerequisites") or [])
+                for resolved in resolved_prereqs:
+                    if resolved != leaf_id and resolved not in existing:
+                        existing.append(resolved)
+                leaf["prerequisites"] = existing
 
     @staticmethod
     def _load(version: str) -> dict:
@@ -268,10 +337,24 @@ class RoadmapEngine:
         an equally valid "learning node" — the leaf granularity decides,
         never the track — so every track exposes identical Open KB / AI
         Mentor / Progress / Revision capability through this single API.
+
+        RC1.3.5B · Adaptive-visibility fix: a ``subtopics`` container (e.g.
+        an authored HashMap/SOLID/case-study sub-breakdown) that itself has
+        no further children is stamped with the exact same metadata shape as
+        a leaf ``topic`` (difficulty/prerequisites/company_importance/
+        mastery_weight/etc — see ``_stamp_defaults`` in
+        ``scripts/generate_roadmap.py``). It was previously excluded purely
+        because of the JSON key name used to author it (``subtopics`` vs
+        ``topics``), which silently hid hundreds of real, fully-metadata'd
+        concepts (e.g. every HashMap internals sub-topic, every SOLID
+        principle, every HLD/LLD case-study section) from the planner,
+        ranking, unlock and ROI graphs. Recognizing it here is purely
+        additive — every id previously returned by ``get_learning_nodes()``
+        is still returned; this only adds more.
         """
         if node.get("type") == "node":
             return True
-        return node.get("type") == "topic" and not node.get("child_ids")
+        return node.get("type") in ("topic", "subtopic") and not node.get("child_ids")
 
     def get_learning_nodes(self) -> List[dict]:
         """Return every atomic learning unit in roadmap order (see ``_is_learning_node``)."""

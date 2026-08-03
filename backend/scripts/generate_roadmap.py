@@ -50,9 +50,18 @@ def node(nid: str, label: str, description: str = "", **extra) -> dict:
 # Design-pattern & case-study helpers
 # ---------------------------------------------------------------------------
 
-def pattern_subtopic(pid: str, label: str, description: str = "") -> dict:
-    """A GoF pattern with the mandated 5-part breakdown."""
-    return {
+def pattern_subtopic(pid: str, label: str, description: str = "", *,
+                     prereqs: list | None = None) -> dict:
+    """A GoF pattern with the mandated 5-part breakdown.
+
+    ``prereqs`` is optional and additive: it is authored on the pattern
+    container itself (mirroring ``lld_case_topic``/``hld_case_topic``) and
+    is resolved down onto the pattern's first real leaf
+    (``{pid}.overview``) by ``_propagate_container_prerequisites`` in the
+    post-processing pass, since the container itself has children and is
+    therefore never a directly-unlockable learning node.
+    """
+    d: dict = {
         "id": pid, "label": label, "description": description,
         "learning_nodes": [
             node(f"{pid}.overview", "Overview",
@@ -67,6 +76,9 @@ def pattern_subtopic(pid: str, label: str, description: str = "") -> dict:
                  "Common LLD-round follow-ups on this pattern."),
         ],
     }
+    if prereqs:
+        d["prerequisites"] = prereqs
+    return d
 
 
 def lld_case_topic(cid: str, label: str, description: str, *,
@@ -285,6 +297,58 @@ DSA_TRACK = {
                          difficulty="easy", estimated_minutes=20, interview_frequency=2, mastery_weight=0.8,
                          problem_ids=["lc-204", "lc-1071"], leetcode_tags=["math"], neetcode_tags=["math-geometry"]),
                  ]},
+                # Recursion (RC1.3.5B — curriculum-foundation gap: every
+                # backtracking/DP/tree topic assumes recursive fluency but
+                # nothing taught it explicitly).
+                {"id": "dsa.foundations.recursion", "label": "Recursion",
+                 "description": "Base cases, call-stack mental model and recursion-to-iteration trade-offs — "
+                                "the prerequisite mindset for trees, backtracking and DP.",
+                 "pattern": "recursion", "estimated_minutes": 75, "difficulty": "easy",
+                 "interview_frequency": 4, "mastery_weight": 1.3,
+                 "tags": ["recursion", "foundations"],
+                 "company_importance": ci(google=4, microsoft=4, atlassian=3, uber=3, flipkart=4),
+                 "learning_nodes": [
+                    node("dsa.foundations.recursion.basics", "Recursion Fundamentals",
+                         "Base case, recursive case and the call-stack mental model.",
+                         difficulty="easy", estimated_minutes=20, interview_frequency=4, mastery_weight=1.1,
+                         problem_ids=["lc-509", "lc-70"], leetcode_tags=["recursion", "math"], neetcode_tags=["dp"]),
+                    node("dsa.foundations.recursion.recurrence", "Recurrence Relations & Recursion Tree",
+                         "Modeling time complexity of recursive calls (T(n) = ...).",
+                         difficulty="medium", estimated_minutes=25, interview_frequency=3, mastery_weight=1.2,
+                         prerequisites=["dsa.foundations.recursion.basics"],
+                         problem_ids=["lc-50", "lc-779"], leetcode_tags=["recursion", "math"], neetcode_tags=["math-geometry"]),
+                    node("dsa.foundations.recursion.to_iterative", "Recursion → Iteration & Memoization",
+                         "Tail-call rewriting, explicit stack simulation and top-down caching — "
+                         "the on-ramp to Dynamic Programming.",
+                         difficulty="medium", estimated_minutes=30, interview_frequency=4, mastery_weight=1.4,
+                         prerequisites=["dsa.foundations.recursion.basics"],
+                         problem_ids=["lc-509", "lc-206"], leetcode_tags=["recursion", "dp"], neetcode_tags=["dp"]),
+                 ]},
+                # Sorting (RC1.3.5B — curriculum-foundation gap: no dedicated
+                # sorting topic despite greedy/heap/interval topics assuming it).
+                {"id": "dsa.foundations.sorting", "label": "Sorting",
+                 "description": "Comparison and non-comparison sorts, stability and when interviewers expect "
+                                "you to implement one from scratch.",
+                 "pattern": "sorting", "estimated_minutes": 90, "difficulty": "easy",
+                 "interview_frequency": 4, "mastery_weight": 1.3,
+                 "prerequisites": ["dsa.foundations.recursion.basics"],
+                 "tags": ["sorting", "foundations"],
+                 "company_importance": ci(google=4, microsoft=4, goldman_sachs=4, flipkart=4, oracle=4),
+                 "learning_nodes": [
+                    node("dsa.foundations.sorting.comparison", "Merge Sort & Quick Sort",
+                         "Divide-and-conquer sorts, partitioning and worst-case analysis.",
+                         difficulty="medium", estimated_minutes=35, interview_frequency=5, mastery_weight=1.6,
+                         problem_ids=["lc-912", "lc-148"], leetcode_tags=["sorting", "divide-and-conquer"], neetcode_tags=["dp"]),
+                    node("dsa.foundations.sorting.non_comparison", "Counting / Bucket / Radix Sort",
+                         "Non-comparison sorts and when O(n log n) can be beaten.",
+                         difficulty="medium", estimated_minutes=25, interview_frequency=2, mastery_weight=1.1,
+                         problem_ids=["lc-75", "lc-164"], leetcode_tags=["sorting"], neetcode_tags=["math-geometry"]),
+                    node("dsa.foundations.sorting.stability_apps", "Stability & Applied Sorting",
+                         "Stable-sort guarantees and sort-then-scan interview patterns.",
+                         difficulty="easy", estimated_minutes=20, interview_frequency=4, mastery_weight=1.2,
+                         prerequisites=["dsa.foundations.sorting.comparison"],
+                         problem_ids=["lc-56", "lc-179"], leetcode_tags=["sorting", "greedy"], neetcode_tags=["intervals"]),
+                 ]},
             ],
         },
         # ---------------- Windows & Search ----------------
@@ -462,6 +526,7 @@ DSA_TRACK = {
                  "description": "Recursive thinking and DFS/BFS templates on binary trees.",
                  "pattern": "trees", "estimated_minutes": 180, "difficulty": "medium",
                  "interview_frequency": 5, "mastery_weight": 1.8,
+                 "prerequisites": ["dsa.foundations.recursion.basics"],
                  "tags": ["tree", "dfs", "bfs"],
                  "company_importance": ci(google=5, microsoft=5, uber=4, linkedin=4, atlassian=5, adobe=4, flipkart=5),
                  "subtopics": [
@@ -578,7 +643,7 @@ DSA_TRACK = {
                  "description": "Binary heap fundamentals and PQ patterns.",
                  "pattern": "heap", "estimated_minutes": 180, "difficulty": "medium",
                  "interview_frequency": 4, "mastery_weight": 1.7,
-                 "prerequisites": ["dsa.trees.binary_tree", "java.collections.comparator"],
+                 "prerequisites": ["dsa.trees.binary_tree", "java.collections.comparator", "dsa.foundations.sorting.comparison"],
                  "tags": ["heap", "priority-queue"],
                  "company_importance": ci(google=5, microsoft=4, uber=5, linkedin=4, atlassian=4, stripe=4, flipkart=4, goldman_sachs=4),
                  "learning_nodes": [
@@ -619,7 +684,7 @@ DSA_TRACK = {
                  "description": "Bottom-up, top-down memo, and state-compression templates.",
                  "pattern": "dp", "estimated_minutes": 300, "difficulty": "hard",
                  "interview_frequency": 5, "mastery_weight": 2.2,
-                 "prerequisites": ["dsa.foundations.arrays"],
+                 "prerequisites": ["dsa.foundations.arrays", "dsa.foundations.recursion.to_iterative"],
                  "tags": ["dp"],
                  "company_importance": ci(google=5, microsoft=5, atlassian=4, uber=4, linkedin=4, adobe=4, goldman_sachs=5, flipkart=4),
                  "subtopics": [
@@ -708,7 +773,7 @@ DSA_TRACK = {
                  "description": "Recursive combinatorial search with pruning.",
                  "pattern": "backtracking", "estimated_minutes": 150, "difficulty": "hard",
                  "interview_frequency": 4, "mastery_weight": 1.7,
-                 "prerequisites": ["dsa.trees.binary_tree"],
+                 "prerequisites": ["dsa.trees.binary_tree", "dsa.foundations.recursion.basics"],
                  "tags": ["backtracking", "recursion"],
                  "company_importance": ci(google=4, microsoft=4, atlassian=4, adobe=4, uber=3, flipkart=4),
                  "learning_nodes": [
@@ -737,6 +802,7 @@ DSA_TRACK = {
                  "description": "Locally-optimal choices leading to global optima.",
                  "pattern": "greedy", "estimated_minutes": 120, "difficulty": "medium",
                  "interview_frequency": 4, "mastery_weight": 1.4,
+                 "prerequisites": ["dsa.foundations.sorting.comparison"],
                  "tags": ["greedy"],
                  "company_importance": ci(google=4, microsoft=4, uber=4, adobe=3, atlassian=4, goldman_sachs=4),
                  "learning_nodes": [
@@ -822,31 +888,75 @@ JAVA_TRACK = {
                               paypal=4, goldman_sachs=5, zoho=5),
     "tags": ["java", "jvm", "backend"],
     "modules": [
+        # RC1.3.5B — Curriculum-foundation gap: the Java track previously
+        # started at OOP, assuming programming fluency that was never
+        # actually taught anywhere in PrepOS. This module is the on-ramp.
+        {"id": "java.basics", "label": "Programming Basics",
+         "description": "The absolute-beginner on-ramp: syntax, variables, control flow and classes — "
+                        "before OOP, Collections or the JVM assume any of it.",
+         "topics": [
+            {"id": "java.basics.programming_intro", "label": "What Is Programming? The JVM",
+             "description": "Source → bytecode → JVM execution; compiling and running a first Java program.",
+             "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 1, "mastery_weight": 0.8,
+             "tags": ["basics", "jvm"]},
+            {"id": "java.basics.variables_datatypes", "label": "Variables & Data Types",
+             "description": "Primitives vs references, literals, type widening/narrowing, arrays as a "
+                            "reference type.",
+             "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 2, "mastery_weight": 0.9,
+             "prerequisites": ["java.basics.programming_intro"],
+             "tags": ["basics", "variables"]},
+            {"id": "java.basics.operators", "label": "Operators & Expressions",
+             "description": "Arithmetic, relational, logical, bitwise and ternary operators; precedence.",
+             "estimated_minutes": 20, "difficulty": "easy", "interview_frequency": 1, "mastery_weight": 0.7,
+             "prerequisites": ["java.basics.variables_datatypes"],
+             "tags": ["basics", "operators"]},
+            {"id": "java.basics.control_flow", "label": "Control Flow",
+             "description": "if/else, switch, for/while/do-while loops, break/continue.",
+             "estimated_minutes": 25, "difficulty": "easy", "interview_frequency": 1, "mastery_weight": 0.8,
+             "prerequisites": ["java.basics.operators"],
+             "tags": ["basics", "control-flow"]},
+            {"id": "java.basics.methods", "label": "Methods & Parameters",
+             "description": "Method signatures, overloading, pass-by-value semantics, varargs.",
+             "estimated_minutes": 25, "difficulty": "easy", "interview_frequency": 2, "mastery_weight": 0.9,
+             "prerequisites": ["java.basics.control_flow"],
+             "tags": ["basics", "methods"]},
+            {"id": "java.basics.classes_objects", "label": "Classes, Objects & Constructors",
+             "description": "Defining a class, instantiation, the `this` reference, constructor chaining — "
+                            "the direct bridge into OOP Foundations.",
+             "estimated_minutes": 35, "difficulty": "easy", "interview_frequency": 3, "mastery_weight": 1.1,
+             "prerequisites": ["java.basics.methods"],
+             "tags": ["basics", "classes", "constructors"]},
+         ]},
         {"id": "java.oop", "label": "OOP Foundations",
          "description": "The four pillars and object identity semantics.",
          "topics": [
             {"id": "java.oop.equals_hashcode", "label": "equals() & hashCode()",
              "description": "Contract, symmetry, and use inside HashMap.",
              "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 5, "mastery_weight": 1.5,
+             "prerequisites": ["java.basics.classes_objects"],
              "tags": ["oop", "hashmap"],
              "company_importance": ci(oracle=5, salesforce=5, goldman_sachs=5, phonepe=4, zoho=5)},
             {"id": "java.oop.inheritance", "label": "Inheritance & Polymorphism",
              "description": "Overriding, dynamic dispatch, diamond problem.",
              "estimated_minutes": 45, "difficulty": "medium", "interview_frequency": 4, "mastery_weight": 1.3,
+             "prerequisites": ["java.basics.classes_objects"],
              "tags": ["oop", "polymorphism"],
              "company_importance": ci(oracle=5, salesforce=4, adobe=4, phonepe=4, zoho=5)},
             {"id": "java.oop.abstraction", "label": "Abstract Classes & Interfaces",
              "description": "When to pick which; default & static methods on interfaces.",
              "estimated_minutes": 40, "difficulty": "medium", "interview_frequency": 4, "mastery_weight": 1.2,
+             "prerequisites": ["java.basics.classes_objects"],
              "tags": ["oop", "interface"],
              "company_importance": ci(oracle=5, salesforce=4, atlassian=3, zoho=5, phonepe=4)},
             {"id": "java.oop.encapsulation", "label": "Encapsulation & Immutability",
              "description": "Builder, final classes, defensive copies.",
              "estimated_minutes": 35, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.1,
+             "prerequisites": ["java.basics.classes_objects"],
              "tags": ["oop", "immutability"]},
             {"id": "java.oop.inner_classes", "label": "Inner / Anonymous / Nested Classes",
              "description": "Static vs non-static nesting; anonymous classes vs lambdas.",
              "estimated_minutes": 25, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.0,
+             "prerequisites": ["java.basics.classes_objects"],
              "tags": ["oop"]},
          ]},
         {"id": "java.collections", "label": "Collections",
@@ -1027,7 +1137,12 @@ LLD_TRACK = {
              "tags": ["solid"],
              "company_importance": ci(atlassian=5, adobe=5, salesforce=5, uber=4, stripe=4),
              "subtopics": [
-                {"id": "lld.principles.solid.srp", "label": "Single Responsibility"},
+                # RC1.3.5B — OOP -> SOLID: SOLID is a refinement of OOP,
+                # never taught as depending on it. srp is the first
+                # sub-node in this container, so it is the leaf that
+                # inherits an explicit OOP prerequisite.
+                {"id": "lld.principles.solid.srp", "label": "Single Responsibility",
+                 "prerequisites": ["java.oop.abstraction", "java.oop.inheritance"]},
                 {"id": "lld.principles.solid.ocp", "label": "Open / Closed"},
                 {"id": "lld.principles.solid.lsp", "label": "Liskov Substitution"},
                 {"id": "lld.principles.solid.isp", "label": "Interface Segregation"},
@@ -1051,8 +1166,12 @@ LLD_TRACK = {
              "tags": ["patterns", "creational"],
              "company_importance": ci(atlassian=5, adobe=5, salesforce=5, uber=4, stripe=4),
              "subtopics": [
+                # RC1.3.5B — SOLID -> Patterns: the first pattern of each
+                # category carries the SOLID (DIP) prerequisite; propagated
+                # onto its `.overview` leaf by `_propagate_container_prerequisites`.
                 pattern_subtopic("lld.patterns.creational.factory", "Factory Method",
-                                 "Defer instantiation to subclasses."),
+                                 "Defer instantiation to subclasses.",
+                                 prereqs=["lld.principles.solid.dip"]),
                 pattern_subtopic("lld.patterns.creational.abstract_factory", "Abstract Factory",
                                  "Families of related objects without concrete classes."),
                 pattern_subtopic("lld.patterns.creational.builder", "Builder",
@@ -1068,7 +1187,8 @@ LLD_TRACK = {
              "tags": ["patterns", "structural"],
              "subtopics": [
                 pattern_subtopic("lld.patterns.structural.adapter", "Adapter",
-                                 "Wrap a class so its interface matches what a client expects."),
+                                 "Wrap a class so its interface matches what a client expects.",
+                                 prereqs=["lld.principles.solid.dip"]),
                 pattern_subtopic("lld.patterns.structural.bridge", "Bridge",
                                  "Separate an abstraction from its implementation."),
                 pattern_subtopic("lld.patterns.structural.composite", "Composite",
@@ -1088,7 +1208,8 @@ LLD_TRACK = {
              "tags": ["patterns", "behavioral"],
              "subtopics": [
                 pattern_subtopic("lld.patterns.behavioral.chain", "Chain of Responsibility",
-                                 "Pass a request along a chain until someone handles it."),
+                                 "Pass a request along a chain until someone handles it.",
+                                 prereqs=["lld.principles.solid.dip"]),
                 pattern_subtopic("lld.patterns.behavioral.command", "Command",
                                  "Encapsulate a request as an object."),
                 pattern_subtopic("lld.patterns.behavioral.interpreter", "Interpreter",
@@ -1391,6 +1512,7 @@ HLD_TRACK = {
             {"id": "hld.foundations.load_balancing", "label": "Load Balancing",
              "description": "L4 vs L7, round-robin, least-connections, consistent hashing.",
              "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 5, "mastery_weight": 1.4,
+             "prerequisites": ["cn.foundations.tcp_ip"],
              "tags": ["load-balancing"]},
             {"id": "hld.foundations.scalability", "label": "Scalability & Availability",
              "description": "Vertical vs horizontal scaling, SLIs/SLOs, availability math.",
@@ -1421,7 +1543,10 @@ HLD_TRACK = {
             {"id": "hld.caching.redis", "label": "Redis Deep-Dive",
              "description": "Data structures, persistence and clustering.",
              "estimated_minutes": 120, "difficulty": "medium", "interview_frequency": 5, "mastery_weight": 1.6,
-             "prerequisites": ["hld.caching.strategies"],
+             # RC1.3.5B — bridges the previously-broken DSA -> LLD -> HLD
+             # caching continuity (LRU Cache case study never connected
+             # forward to anything).
+             "prerequisites": ["hld.caching.strategies", "lld.cat.caching.lru"],
              "tags": ["redis"],
              "subtopics": [
                 {"id": "hld.caching.redis.ttl", "label": "TTL & Eviction"},
@@ -1759,12 +1884,23 @@ OS_TRACK = {
                               paypal=3, goldman_sachs=4, zoho=4),
     "tags": ["os"],
     "modules": [
+        # RC1.3.5B — Curriculum-foundation gap: nothing taught kernel vs
+        # user mode / what an OS actually is before diving into processes.
+        {"id": "os.foundations", "label": "Foundations",
+         "description": "What an operating system actually does, before processes, memory or files.",
+         "topics": [
+            {"id": "os.foundations.intro", "label": "What Is an Operating System?",
+             "description": "Kernel vs user mode, system calls, the OS as a resource manager.",
+             "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 3, "mastery_weight": 1.0,
+             "tags": ["os", "foundations", "kernel"]},
+         ]},
         {"id": "os.processes", "label": "Processes & Threads",
          "description": "Concurrency at the OS level.",
          "topics": [
             {"id": "os.processes.basics", "label": "Process vs Thread",
              "description": "Address spaces, context switches, PCB.",
              "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 5, "mastery_weight": 1.3,
+             "prerequisites": ["os.foundations.intro"],
              "tags": ["process", "thread"]},
             {"id": "os.processes.scheduling", "label": "Process Scheduling",
              "description": "FCFS, SJF, Round-Robin, MLFQ, CFS.",
@@ -1834,22 +1970,38 @@ DBMS_TRACK = {
         {"id": "dbms.relational", "label": "Relational Databases",
          "description": "ACID, indexing and normalization.",
          "topics": [
+            # RC1.3.5B — Curriculum-foundation gap: Keys & ER-Modelling are
+            # the actual starting point of relational-DB literacy; ACID and
+            # indexing previously assumed them without ever teaching them.
+            {"id": "dbms.relational.keys", "label": "Keys · Primary, Foreign & Candidate",
+             "description": "Primary/candidate/foreign/composite keys, referential integrity — "
+                            "the vocabulary every schema and join question builds on.",
+             "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 4, "mastery_weight": 1.2,
+             "tags": ["keys", "foundations"]},
+            {"id": "dbms.relational.er_model", "label": "ER Modelling",
+             "description": "Entities, relationships, cardinality and converting an ER diagram into tables.",
+             "estimated_minutes": 40, "difficulty": "easy", "interview_frequency": 3, "mastery_weight": 1.1,
+             "prerequisites": ["dbms.relational.keys"],
+             "tags": ["er-model", "foundations"]},
             {"id": "dbms.relational.acid", "label": "Transactions & ACID",
              "description": "Atomicity, Consistency, Isolation, Durability.",
              "estimated_minutes": 60, "difficulty": "medium", "interview_frequency": 5, "mastery_weight": 1.5,
+             "prerequisites": ["dbms.relational.keys"],
              "tags": ["acid"]},
             {"id": "dbms.relational.indexing", "label": "Indexing Strategies",
              "description": "B+ tree, hash, bitmap, covering index.",
              "estimated_minutes": 75, "difficulty": "medium", "interview_frequency": 5, "mastery_weight": 1.6,
+             "prerequisites": ["dbms.relational.keys"],
              "tags": ["indexing"]},
             {"id": "dbms.relational.normalization", "label": "Normalization",
              "description": "1NF → BCNF and when to denormalize.",
              "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 3, "mastery_weight": 1.0,
+             "prerequisites": ["dbms.relational.er_model"],
              "tags": ["normalization"]},
             {"id": "dbms.relational.joins", "label": "Joins & Query Optimization",
              "description": "Nested-loop, hash, merge joins; EXPLAIN plans.",
              "estimated_minutes": 60, "difficulty": "hard", "interview_frequency": 4, "mastery_weight": 1.4,
-             "prerequisites": ["dbms.relational.indexing"],
+             "prerequisites": ["dbms.relational.indexing", "dbms.relational.keys"],
              "tags": ["joins", "optimizer"]},
             {"id": "dbms.relational.sql", "label": "SQL Deep-Dive",
              "description": "Window functions, CTEs, GROUP BY vs PARTITION BY.",
@@ -2205,6 +2357,56 @@ _DEFAULT_MASTERY_WEIGHT = 1.0
 _DEFAULT_ESTIMATED_MINUTES = 30
 _DEFAULT_DIFFICULTY = "medium"
 
+# ---------------------------------------------------------------------------
+# RC1.3.5B · Part E — Learning stages
+# ---------------------------------------------------------------------------
+# Purely derived from the already-authored module taxonomy (no new per-node
+# guesswork): every module id below was authored well before this pass and
+# its pedagogical position in its track is unambiguous from its content.
+# `learning_stage` is a UI/journey-grouping label only — it is never read by
+# unlock/ranking/ROI logic, so it cannot change any gating behavior.
+_MODULE_LEARNING_STAGE: dict[str, str] = {
+    # DSA
+    "dsa.foundations": "foundation", "dsa.windows_search": "core",
+    "dsa.linear_structures": "core", "dsa.trees_graphs": "intermediate",
+    "dsa.priority": "intermediate", "dsa.dp_backtracking": "advanced",
+    "dsa.advanced": "advanced",
+    # Java
+    "java.basics": "foundation", "java.oop": "core", "java.collections": "core",
+    "java.generics_exceptions": "intermediate", "java.streams_lambdas": "intermediate",
+    "java.concurrency": "advanced", "java.jvm": "advanced", "java.io_nio": "intermediate",
+    # LLD
+    "lld.principles": "foundation", "lld.patterns": "core",
+    "lld.uml_modelling": "core", "lld.cases": "interview",
+    # HLD
+    "hld.foundations": "foundation", "hld.caching": "core", "hld.databases": "core",
+    "hld.messaging": "intermediate", "hld.distributed": "advanced",
+    "hld.security": "advanced", "hld.cases": "interview",
+    # OS
+    "os.foundations": "foundation", "os.processes": "core",
+    "os.memory": "intermediate", "os.filesystems": "intermediate",
+    # DBMS
+    "dbms.relational": "foundation", "dbms.concurrency": "intermediate",
+    "dbms.nosql": "core", "dbms.scaling": "advanced",
+    # Computer Networks
+    "cn.foundations": "foundation", "cn.advanced": "intermediate", "cn.security": "advanced",
+}
+_LEARNING_STAGE_MODULE_PREFIXES: list[tuple[str, str]] = [
+    ("lld.cat.", "interview"), ("hld.cat.", "interview"),
+]
+_LEARNING_STAGE_TRACK_FALLBACK = {
+    "projects": "company_specific", "behavioral": "company_specific", "resume": "company_specific",
+}
+
+
+def _infer_learning_stage(track_id: str, module_id: str) -> str:
+    if module_id in _MODULE_LEARNING_STAGE:
+        return _MODULE_LEARNING_STAGE[module_id]
+    for prefix, stage in _LEARNING_STAGE_MODULE_PREFIXES:
+        if module_id.startswith(prefix):
+            return stage
+    return _LEARNING_STAGE_TRACK_FALLBACK.get(track_id, "core")
+
 
 def _stamp_defaults(n: dict, *, track_id: str, module_id: str, category_id: str, level: str, order: int) -> None:
     """Attach metadata every node needs. Never overwrites explicit values."""
@@ -2225,6 +2427,9 @@ def _stamp_defaults(n: dict, *, track_id: str, module_id: str, category_id: str,
     n["revision_bucket"] = n.get("revision_bucket", "green")
     n["status"] = n.get("status", "available" if level in ("track", "module") else "locked")
     n["version"] = VERSION
+    if level in ("topic", "subtopic", "node"):
+        n.setdefault("learning_stage", _infer_learning_stage(track_id, module_id))
+
 
 
 def _walk_and_stamp(track: dict) -> None:
@@ -2283,6 +2488,132 @@ def _collect_all_nodes(tracks: list[dict]) -> list[dict]:
     for t in tracks:
         visit(t)
     return out
+
+
+# ---------------------------------------------------------------------------
+# RC1.3.5B · Part C — Prerequisite-graph repairs
+# ---------------------------------------------------------------------------
+
+def _leaf_entry_id(node_id: str, by_id: dict) -> str | None:
+    """Resolve any node id to its first real leaf.
+
+    Container nodes (a topic with `subtopics`/`learning_nodes`, e.g. an HLD
+    case study's 10-part breakdown or a GoF pattern's 5-part breakdown) are
+    never themselves atomic learning nodes — only their leaves are (see
+    `roadmap.RoadmapEngine._is_learning_node`). This walks the *first*
+    child repeatedly until it reaches a node with no children, which is
+    exactly the node authors intend a reader to start with.
+    """
+    seen: set[str] = set()
+    current = node_id
+    while True:
+        if current in seen or current not in by_id:
+            return None
+        seen.add(current)
+        n = by_id[current]
+        children = n.get("subtopics") or n.get("learning_nodes") or []
+        if not children:
+            return current
+        current = children[0]["id"]
+
+
+def _all_leaf_ids(node_id: str, by_id: dict) -> list[str]:
+    """Resolve any node id to EVERY real descendant leaf reachable from it.
+
+    Container nodes (a topic with `subtopics`/`learning_nodes`, e.g. an HLD
+    case study's 10-part breakdown or a GoF pattern's 5-part breakdown) are
+    never themselves atomic learning nodes — only their leaves are (see
+    `roadmap.RoadmapEngine._is_learning_node`). Unlike `_leaf_entry_id`
+    (which only walks the first child chain), this walks every branch —
+    required so a container-authored prerequisite gates the WHOLE subtree,
+    not just its first sibling branch (RC1.3.6A: previously only
+    `dsa.dp.1d.*` inherited `dsa.dp.core`'s gate while `dsa.dp.unbounded.*`
+    / `dsa.dp.2d.*` / etc. stayed silently prerequisite-free).
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    stack = [node_id]
+    while stack:
+        current = stack.pop()
+        if current in seen or current not in by_id:
+            continue
+        seen.add(current)
+        n = by_id[current]
+        children = n.get("subtopics") or n.get("learning_nodes") or []
+        if children:
+            stack.extend(c["id"] for c in children)
+        else:
+            out.append(current)
+    return out
+
+
+def _propagate_container_prerequisites(all_nodes: list[dict], by_id: dict) -> None:
+    """Make container-level `prerequisites` authoring actually enforceable.
+
+    A `prerequisites` list authored on a non-leaf topic (e.g.
+    `dsa.foundations.hashing` requiring `java.collections.hashmap`, or an
+    HLD case study requiring `hld.caching.redis`) was previously dead
+    metadata: `roadmap.is_unlocked` only ever inspects leaf learning nodes,
+    so nothing enforced it. This resolves both sides of every such edge
+    down to real leaves — EVERY leaf reachable under the container inherits
+    the requirement (RC1.3.6A: fixed from only the first-child-chain leaf),
+    and any prerequisite id that itself points at a container is resolved
+    to *its* first entry leaf — so every authored edge becomes a real,
+    enforceable leaf-to-leaf dependency. Purely additive: it only appends
+    ids to a leaf's existing `prerequisites` list, never removes any, never
+    duplicates an id already present, and never lets a leaf list itself.
+    """
+    for n in all_nodes:
+        children = n.get("subtopics") or n.get("learning_nodes") or []
+        prereqs = n.get("prerequisites") or []
+        if not children or not prereqs:
+            continue
+        leaf_ids = [lid for lid in _all_leaf_ids(n["id"], by_id) if lid != n["id"]]
+        if not leaf_ids:
+            continue
+        resolved_prereqs: list[str] = []
+        for pid in prereqs:
+            resolved = _leaf_entry_id(pid, by_id) or pid
+            if resolved not in resolved_prereqs:
+                resolved_prereqs.append(resolved)
+        for leaf_id in leaf_ids:
+            entry = by_id.get(leaf_id)
+            if entry is None:
+                continue
+            existing = list(entry.get("prerequisites") or [])
+            for resolved in resolved_prereqs:
+                if resolved != leaf_id and resolved not in existing:
+                    existing.append(resolved)
+            entry["prerequisites"] = existing
+
+
+# Case-study modules whose leaf topics previously had zero prerequisites in
+# large numbers (RC1.3.5A: 97.6% of LLD case studies, ~most HLD case
+# studies) — each gets its foundational gate wired in one deterministic
+# pass instead of hand-editing every individual case study.
+_LLD_CASE_STUDY_MODULE_PREFIXES = ("lld.cases", "lld.cat.")
+_HLD_CASE_STUDY_MODULE_PREFIXES = ("hld.cases", "hld.cat.")
+
+
+def _wire_case_study_prerequisites(all_nodes: list[dict]) -> None:
+    """Give every previously-isolated LLD/HLD case study its foundational gate.
+
+    Only touches topics whose `prerequisites` list is still empty after
+    authoring (never overrides an explicitly authored prerequisite, e.g.
+    `lld.cases.lru_cache` keeps its `dsa.linear.linked_list.lru` edge).
+    Runs before `_propagate_container_prerequisites` so HLD case studies
+    (which have a 10-part `subtopics` breakdown and are therefore
+    containers, not leaves) get this new edge correctly resolved down to
+    their `.problem` entry leaf.
+    """
+    for n in all_nodes:
+        if n.get("level") != "topic" or (n.get("prerequisites") or []):
+            continue
+        module_id = n.get("module") or ""
+        if module_id.startswith(_LLD_CASE_STUDY_MODULE_PREFIXES):
+            n["prerequisites"] = ["lld.principles.solid.dip"]
+        elif module_id.startswith(_HLD_CASE_STUDY_MODULE_PREFIXES):
+            n["prerequisites"] = ["hld.foundations.scalability", "hld.foundations.cap"]
 
 
 def _auto_link_related(tracks: list[dict], all_nodes: list[dict]) -> None:
@@ -2371,6 +2702,9 @@ def build() -> dict:
                 dupes.append(n["id"])
             seen.add(n["id"])
         raise ValueError(f"Duplicate node ids: {dupes}")
+    by_id = {n["id"]: n for n in all_nodes}
+    _wire_case_study_prerequisites(all_nodes)
+    _propagate_container_prerequisites(all_nodes, by_id)
     _validate_dag(ids, all_nodes)
     _auto_link_related(TRACKS, all_nodes)
 

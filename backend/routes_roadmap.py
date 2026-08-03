@@ -13,6 +13,8 @@ from problem_bank import problem_by_id
 from ai_service import AIProviderError
 from knowledge_generation import ensure_content, read_cache, clear_cache
 from services.progress_engine import build_canonical_progress, load_user_progress_rows
+from services.learning_engine.roi import compute_learning_roi
+from services.learning_engine.ranking import _is_foundation_node
 from mission_engine import compute_readiness
 
 router = APIRouter(prefix="/api/roadmap", tags=["roadmap"])
@@ -283,6 +285,14 @@ async def get_node_detail(node_id: str, user=Depends(get_current_user)):
     # Track
     track = roadmap.find_track(node_id)
 
+    # RC1.3.5B · Part F — interview-intelligence metadata, derived live from
+    # the existing ROI/ranking engines rather than hardcoded on the node.
+    # `roi`/`is_foundation_entry` are graph-derived (never stale); `must_know`
+    # is a simple threshold on the already-authored `interview_frequency`.
+    node_roi = compute_learning_roi(node_id) if roadmap._is_learning_node(node) else None
+    is_foundation_entry = _is_foundation_node(node)
+    must_know = int(node.get("interview_frequency", 0) or 0) >= 5
+
     # Company importance — for display we blend the effective inherited
     # rating (LearningNode → Topic → Module → Track, first hit wins) with
     # the track's own rating so topics without differentiated per-node data
@@ -321,6 +331,10 @@ async def get_node_detail(node_id: str, user=Depends(get_current_user)):
         "company_importance": company_importance,
         "activity": activity,
         "assignments_count": len(assignments),
+        "roi": node_roi,
+        "is_foundation_entry": is_foundation_entry,
+        "must_know": must_know,
+        "learning_stage": node.get("learning_stage"),
     }
 
 

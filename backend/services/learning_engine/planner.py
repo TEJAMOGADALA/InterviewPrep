@@ -5,10 +5,12 @@ from typing import Iterable, List, Optional
 
 from roadmap import get_roadmap
 from services.learning_engine.builder import build_learning_recommendation
+from services.learning_engine.candidates import generate_candidate_nodes
 from services.learning_engine.composition import (
     CompositionPlan, ContinuityChain, chain_from_history,
     continuity_score, plan_composition,
 )
+from services.learning_engine.eligibility import eligible_learning_nodes
 from services.learning_engine.foresight import (
     estimate_company_readiness_gain, likely_next_topics,
 )
@@ -17,6 +19,7 @@ from services.learning_engine.pacing import forecast_completion
 from services.learning_engine.ranking import rank_learning_nodes, score_learning_node
 from services.learning_engine.revision import get_highest_priority_revision
 from services.learning_engine.roi import direct_dependents
+from services.learning_engine.stage_engine import compute_all_subject_states
 from services.learning_engine.unlock import get_unlocked_nodes, next_unlockable_nodes
 from services.progress_engine import load_user_progress_rows
 
@@ -315,14 +318,29 @@ async def get_today_learning_node(
                 insight=_attach_insight(node, revision),
             )
 
-    unlocked_nodes = [
-        n for n in get_unlocked_nodes(progress_rows) if n.get("id") not in skip
-    ]
-    if not unlocked_nodes:
+    # RC1.3.6A · Phase 4-6 — Roadmap -> Prerequisite Graph -> Learning State
+    # -> Eligibility Engine -> Candidate Set -> Ranking Engine. The ranking
+    # formula itself (services/learning_engine/ranking.py) is unchanged; it
+    # now simply never has to inspect the hundreds of merely-*unlocked* nodes
+    # that used to be handed to it directly.
+    roadmap = get_roadmap()
+    subject_states = compute_all_subject_states(roadmap, progress_map)
+    eligible_nodes = eligible_learning_nodes(
+        progress_map, subject_states, urgency=urgency, skip_node_ids=skip,
+    )
+    if not eligible_nodes:
+        return None
+
+    candidate_nodes = generate_candidate_nodes(
+        eligible_nodes, progress_map, subject_states, roadmap=roadmap,
+        target_companies=target_companies, urgency=urgency,
+        recent_track_ids=recent_track_ids,
+    )
+    if not candidate_nodes:
         return None
 
     ranked_nodes = rank_learning_nodes(
-        unlocked_nodes, progress_map, target_companies=target_companies, urgency=urgency,
+        candidate_nodes, progress_map, target_companies=target_companies, urgency=urgency,
         recent_node_ids=recent_node_ids,
         skipped_node_ids=skipped_node_ids,
         recent_track_ids=recent_track_ids,

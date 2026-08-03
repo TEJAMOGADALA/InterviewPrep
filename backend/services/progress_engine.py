@@ -205,25 +205,85 @@ def score_to_node_fields(score: float) -> dict:
     }
 
 
+# RC1.3.6A — Phase 2: stage-aware onboarding seeding.
+#
+# `learning_stage` (foundation < core < intermediate < advanced) is stamped
+# on every roadmap learning node by scripts/generate_roadmap.py, purely as a
+# UI/journey-grouping label previously never read by any engine logic. This
+# is now the canonical scale a track's onboarding rating is projected onto.
+_STAGE_ORDER = ("foundation", "core", "intermediate", "advanced")
+
+# A track whose learning nodes are NOT structured along `_STAGE_ORDER` (every
+# node instead carries the flat "company_specific" fallback stage — the
+# behavioral/projects/resume tracks) has no stage progression to project a
+# rating onto, so it keeps the old flat/uniform baseline behavior.
+_UNDERSTOOD_BASELINE_SCORE = 85.0  # solid, deliberately not "mastered" (>=90)
+_NEUTRAL_BASELINE_RATING = 5.0
+
+
+def _stage_for_rating(rating: float) -> str:
+    """Deterministic onboarding-rating -> starting-stage mapping.
+
+    A track's 1-10 self-assessment slider no longer stamps one identical
+    confidence value onto every node in the track — it selects the STAGE
+    the learner is presumed to already stand at: rating=1 lands at
+    "foundation" (only Arrays/Strings/Complexity-style nodes are seeded as
+    understood), rating=8 lands at "advanced" (foundation/core/intermediate
+    nodes are additionally marked understood so advanced nodes become
+    legitimately eligible instead of everything getting one flat value).
+    """
+    if rating <= 2:
+        return "foundation"
+    if rating <= 4:
+        return "core"
+    if rating <= 6:
+        return "intermediate"
+    return "advanced"
+
+
+def _node_stage_index(node: dict) -> int:
+    stage = node.get("learning_stage")
+    if stage in _STAGE_ORDER:
+        return _STAGE_ORDER.index(stage)
+    # "interview" (LLD/HLD case-study capstones) and "company_specific"
+    # (behavioral/projects/resume) sit beyond the 4 core stages and are
+    # never auto-marked understood by onboarding alone — they're earned by
+    # completing the stage progression, not granted from a slider.
+    return len(_STAGE_ORDER)
+
+
 async def seed_knowledge_nodes_from_self_assessment(
     db, user_id: str, self_assessment: Dict[str, float], roadmap,
 ) -> int:
     """Onboarding-only baseline seed of `knowledge_nodes` from self-assessment.
 
-    Converts each track's self-assessment slider (1-10) into a starting
-    confidence/weakness/mastery baseline for every learning node in that
-    track only, so the ranking model in services/learning_engine/ranking.py
-    sees different learners differently from day one instead of the
-    identical zeroed defaults every new user previously had.
+    Each track's self-assessment slider (1-10) selects a starting learning
+    STAGE for that track (`_stage_for_rating`) rather than stamping one
+    identical confidence/mastery value onto every node in the track:
 
-    Self-assessment is a perceived-confidence signal, not proof of mastery:
-    `status` is always forced to "in_progress" (never "completed"/
-    "mastered") so seeding can never satisfy a prerequisite, unlock a
-    downstream roadmap node, or bypass the prerequisite chain in
-    services/learning_engine/unlock.py.
+      - Nodes at a stage BELOW the learner's starting stage are seeded as
+        already understood (`status="completed"`, a solid but non-mastered
+        baseline) — this is what legitimately makes later-stage nodes
+        eligible, e.g. DSA=8 marks foundation/core/intermediate nodes
+        understood so advanced DP becomes reachable through the real
+        prerequisite chain instead of everything being flatly identical.
+      - Nodes AT the learner's starting stage are seeded proportionally to
+        their actual rating (status="in_progress") — still differentiates
+        e.g. a 5 from a 6 even though both land in "intermediate".
+      - Nodes ABOVE the learner's starting stage are left unseeded (no row)
+        — a genuine cold start, never pre-unlocked from a slider alone.
 
-    Idempotent and non-destructive — a learning node that already has a
-    `knowledge_nodes` row for this user + roadmap version is left untouched.
+    Tracks with no stage progression (every node carries the flat
+    "company_specific" fallback stage — behavioral/projects/resume) keep the
+    old flat/uniform baseline (`status="in_progress"` for every node), since
+    there is no stage to project a rating onto.
+
+    The initialization remains fully deterministic (pure function of the
+    rating + each node's authored `learning_stage`), preserves the existing
+    `knowledge_nodes` collection shape, and preserves this function's public
+    signature/return type. Idempotent and non-destructive — a learning node
+    that already has a `knowledge_nodes` row for this user + roadmap version
+    is always left untouched.
     """
     cur = db.knowledge_nodes.find(
         {"user_id": user_id, "roadmap_version": roadmap.version}, {"_id": 0, "node_id": 1},
@@ -245,13 +305,32 @@ async def seed_knowledge_nodes_from_self_assessment(
     for track in roadmap.track_ids():
         rating = self_assessment.get(track)
         if rating is None:
-            rating = 5.0
-        fields = score_to_node_fields(float(rating) * 10.0)
-        fields["status"] = "in_progress"  # never "mastered" — must not unlock/complete nodes
-        for node in roadmap.get_track_learning_nodes(track):
+            rating = _NEUTRAL_BASELINE_RATING
+        rating = float(rating)
+        nodes = roadmap.get_track_learning_nodes(track)
+        is_staged_track = any(node.get("learning_stage") in _STAGE_ORDER for node in nodes)
+        starting_index = _STAGE_ORDER.index(_stage_for_rating(rating)) if is_staged_track else -1
+
+        for node in nodes:
             node_id = node["id"]
             if node_id in existing_ids:
                 continue
+
+            if not is_staged_track:
+                # Flat track (behavioral/projects/resume): old uniform baseline.
+                fields = score_to_node_fields(rating * 10.0)
+                fields["status"] = "in_progress"
+            else:
+                node_index = _node_stage_index(node)
+                if node_index > starting_index:
+                    continue  # above the learner's starting stage — cold start, no row
+                if node_index < starting_index:
+                    fields = score_to_node_fields(_UNDERSTOOD_BASELINE_SCORE)
+                    fields["status"] = "completed"  # legitimately satisfies downstream prerequisites
+                else:
+                    fields = score_to_node_fields(rating * 10.0)
+                    fields["status"] = "in_progress"  # never "mastered" from a slider alone
+
             existing_ids.add(node_id)
             rows.append({
                 "id": str(uuid.uuid4()),
