@@ -22,12 +22,16 @@ export const POSITIONS = [
   { id: '5+',           label: '5+ Years',     hint: 'Senior / staff engineer' },
 ];
 
+// Order mirrors the Knowledge Base's canonical subject order (see
+// SUBJECT_ORDER in pages/knowledge/KnowledgeBase.jsx), filtered to only the
+// subjects the onboarding self-assessment actually rates.
 export const SELF_ASSESSMENT_TOPICS = [
-  { key: 'dsa',                 label: 'Data Structures & Algorithms' },
-  { key: 'java',                label: 'Java' },
-  { key: 'lld',                 label: 'Low-Level Design (LLD)' },
-  { key: 'hld',                 label: 'High-Level Design (HLD)' },
-  { key: 'operating_systems',   label: 'Operating Systems' },
-  { key: 'dbms',                label: 'DBMS' },
-  { key: 'computer_networks',   label: 'Computer Networks' },
+  { key: 'programming_fundamentals', label: 'Programming Fundamentals' },
+  { key: 'java',                     label: 'Java' },
+  { key: 'dsa',                      label: 'Data Structures & Algorithms' },
+  { key: 'dbms',                     label: 'DBMS' },
+  { key: 'operating_systems',        label: 'Operating Systems' },
+  { key: 'computer_networks',        label: 'Computer Networks' },
+  { key: 'lld',                      label: 'Low-Level Design (LLD)' },
+  { key: 'hld',                      label: 'High-Level Design (HLD)' },
 ];

@@ -28,7 +28,8 @@ const STEPS = [
 ];
 
 function estimatePrepDays(hours, skills) {
-  const avg = Object.values(skills).reduce((a, b) => a + b, 0) / 7;
+  const values = Object.values(skills);
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
   const base = 180 - avg * 12;
   const hoursFactor = 4 / Math.max(hours, 1);
   return Math.max(30, Math.round((base * hoursFactor) / 2));

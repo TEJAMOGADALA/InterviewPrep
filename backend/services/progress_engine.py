@@ -220,6 +220,13 @@ _STAGE_ORDER = ("foundation", "core", "intermediate", "advanced")
 _UNDERSTOOD_BASELINE_SCORE = 85.0  # solid, deliberately not "mastered" (>=90)
 _NEUTRAL_BASELINE_RATING = 5.0
 
+# Mirrors services.learning_engine.planner.ENTRY_TRACK_ID (not imported directly
+# to avoid a circular import: planner.py already imports from this module).
+# Programming Fundamentals is the universal starting point for every learner,
+# so it is never pre-seeded from an onboarding rating — a brand-new user
+# always starts it at a genuine 0%, earned only by actually studying it.
+_ENTRY_TRACK_ID = "programming_fundamentals"
+
 
 def _stage_for_rating(rating: float) -> str:
     """Deterministic onboarding-rating -> starting-stage mapping.
@@ -303,6 +310,8 @@ async def seed_knowledge_nodes_from_self_assessment(
     # for unrated tracks, e.g. mission_engine.compute_readiness) keeps every
     # track on equal footing until the learner actually engages with it.
     for track in roadmap.track_ids():
+        if track == _ENTRY_TRACK_ID:
+            continue  # never pre-seeded — see _ENTRY_TRACK_ID above
         rating = self_assessment.get(track)
         if rating is None:
             rating = _NEUTRAL_BASELINE_RATING

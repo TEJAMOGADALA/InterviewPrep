@@ -93,9 +93,9 @@ def test_seed_covers_every_roadmap_track_with_stage_aware_rows():
     # Tracks never covered by onboarding sliders AND with no stage progression
     # of their own (behavioral/projects/resume) still get a full neutral flat
     # baseline. (Programming Fundamentals is also never asked about by the
-    # onboarding sliders, but — like dsa/java/etc. — it IS a genuinely staged
-    # track, so it legitimately gets stage-aware seeding here too, not a flat
-    # baseline; it is deliberately excluded from this "flat track" check.)
+    # onboarding sliders and, unlike dsa/java/etc., is never seeded at all —
+    # see test_programming_fundamentals_is_never_seeded_from_onboarding below
+    # — so it is deliberately excluded from this "flat track" check.)
     flat_tracks = {"behavioral", "projects", "resume"}
     unrated_track = next(
         t for t in roadmap.track_ids() if t not in SELF_ASSESSMENT_LOW_DSA and t in flat_tracks
@@ -131,6 +131,26 @@ def test_high_rating_marks_earlier_stages_completed_so_later_stages_unlock():
 
     # No node is ever marked "mastered" purely from onboarding.
     assert all(row["status"] != "mastered" for row in rows.values())
+
+
+def test_programming_fundamentals_is_never_seeded_from_onboarding():
+    """Programming Fundamentals is the universal starting point: a brand-new
+    user must see it at a genuine 0% (not a stage-projected or neutral
+    baseline), even when the onboarding payload carries an explicit rating
+    for it, so it can only be earned by actually studying the track."""
+    roadmap = get_roadmap()
+    db = FakeDB()
+
+    self_assessment = {**SELF_ASSESSMENT_LOW_DSA, "programming_fundamentals": 9}
+    asyncio.run(
+        seed_knowledge_nodes_from_self_assessment(db, "user-a", self_assessment, roadmap)
+    )
+
+    pf_rows = [
+        row for row in db.knowledge_nodes._rows
+        if roadmap.get(row["node_id"])["track"] == "programming_fundamentals"
+    ]
+    assert pf_rows == []
 
 
 def test_seed_is_idempotent_and_never_overwrites_existing_progress():

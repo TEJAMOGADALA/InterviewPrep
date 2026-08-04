@@ -60,6 +60,7 @@ class ProfileUpdate(BaseModel):
 # ============ Onboarding ============
 
 class OnboardingSelfAssessment(BaseModel):
+    programming_fundamentals: int = Field(ge=0, le=10, default=0)
     dsa: int = Field(ge=0, le=10, default=0)
     java: int = Field(ge=0, le=10, default=0)
     lld: int = Field(ge=0, le=10, default=0)
