@@ -12,7 +12,17 @@ from services.learning_engine.candidates import generate_candidate_nodes, DEFAUL
 
 def test_candidate_pool_is_compact_and_within_expected_range():
     roadmap = get_roadmap()
-    progress = {}
+    # RC1.3.7 stage_engine fix: a fully blank-progress user now correctly sees
+    # only foundation-stage, zero-prereq nodes (one small slice per track),
+    # so completing a few foundation nodes is needed to unlock enough
+    # downstream content for the pool to genuinely exceed DEFAULT_MAX_CANDIDATES
+    # and exercise real trimming (rather than the previous, looser gating that
+    # inflated the blank-progress pool to 189 nodes across every stage).
+    progress = {
+        n["id"]: {"status": "completed"}
+        for n in roadmap.get_learning_nodes()
+        if n.get("learning_stage") == "foundation"
+    }
     states = compute_all_subject_states(roadmap, progress)
     eligible = eligible_learning_nodes(progress, states)
     assert len(eligible) > DEFAULT_MAX_CANDIDATES  # sanity: trimming is actually needed

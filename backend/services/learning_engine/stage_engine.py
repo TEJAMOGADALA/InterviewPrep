@@ -149,6 +149,19 @@ def compute_subject_learning_state(
     # contiguously-completed prefix (`completed_stage`) and the first
     # not-yet-fully-completed stage (`current_stage`). A stage with zero
     # nodes in this track is trivially satisfied and does not block the walk.
+    #
+    # RC1.3.7 Phase 6/7 fix: some tracks (e.g. LLD: foundation+core only,
+    # then straight to the "interview" case-study capstone) simply have no
+    # curriculum authored at "intermediate"/"advanced" — those buckets are
+    # empty by curriculum design, not because the learner mastered them.
+    # Vacuously walking past empty buckets all the way to the last defined
+    # index ("advanced") falsely promoted a learner who only ever completed
+    # a track's "core" content straight to "advanced", which then wrongly
+    # satisfied the eligibility-widening rule that unlocks the interview
+    # capstone for anyone "advanced" (see eligibility._stage_cap_index).
+    # `current_stage`/`completed_stage` must never exceed the highest stage
+    # index that actually has authored content in this track.
+    max_real_stage_idx = max((idx for idx in stage_nodes if idx < len(_STAGE_ORDER)), default=0)
     completed_stage_idx = -1
     current_stage_idx = 0
     for idx in range(len(_STAGE_ORDER)):
@@ -158,8 +171,12 @@ def compute_subject_learning_state(
             break
         completed_stage_idx = idx
         current_stage_idx = idx
+        if idx >= max_real_stage_idx:
+            break
     else:
         current_stage_idx = len(_STAGE_ORDER) - 1  # every defined stage fully completed
+    current_stage_idx = min(current_stage_idx, max(max_real_stage_idx, 0))
+    completed_stage_idx = min(completed_stage_idx, max_real_stage_idx)
 
     completed_stage = _STAGE_ORDER[completed_stage_idx] if completed_stage_idx >= 0 else None
     current_stage = _STAGE_ORDER[current_stage_idx]
@@ -179,7 +196,18 @@ def compute_subject_learning_state(
 
     # next_eligible_stage: the immediate next stage, only if it is already
     # reachable through the real prerequisite graph — never skips a stage.
-    if current_stage_idx + 1 < len(_STAGE_ORDER):
+    #
+    # RC1.3.7 Phase 6/12 guard: "Foundations First" is a hard governance
+    # principle (Persona spec: a learner who has not yet cleared Foundations
+    # in a subject must see Foundations only). A track whose "core" module
+    # happens to carry no authored prerequisite back onto "foundations"
+    # (sparse-graph tracks like OS) would otherwise look trivially
+    # "unlocked" and let a still-at-foundation learner skip straight to
+    # core content. While still genuinely in the foundation stage, never
+    # advance next_eligible_stage past it.
+    if current_stage_idx == 0:
+        next_eligible_stage = current_stage
+    elif current_stage_idx + 1 < len(_STAGE_ORDER):
         candidate_idx = current_stage_idx + 1
         next_eligible_stage = _STAGE_ORDER[candidate_idx] if unlocked_idx >= candidate_idx else current_stage
     else:

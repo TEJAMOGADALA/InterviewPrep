@@ -4,6 +4,7 @@ import pytest
 
 import mission_engine
 from mission_engine import build_mission_for_user
+from models import OnboardingSelfAssessment
 from services.learning_engine.builder import build_learning_recommendation
 from services.learning_engine.planner import get_today_learning_node
 from services.learning_engine.ranking import rank_learning_nodes
@@ -61,7 +62,42 @@ def test_get_unlocked_and_next_unlockable_nodes():
 
     assert any(node["id"] == "dsa.foundations.arrays.prefix_sum" for node in unlocked)
     assert any(node["id"] == "dsa.foundations.arrays.diff_array" for node in next_nodes)
-    assert first_unlockable_node(progress_rows)["id"] == "dsa.foundations.arrays.kadane"
+    # As of the 2026 curriculum sync, Programming Fundamentals is track 0 with no
+    # prerequisites, so it — not DSA — is now the very first unlockable node
+    # across the whole roadmap.
+    assert first_unlockable_node(progress_rows)["id"] == "pf.intro.core"
+
+
+def test_first_time_beginner_starts_from_programming_fundamentals():
+    onboarding = {
+        "current_position": "student",
+        "self_assessment": {"dsa": 8, "java": 8, "lld": 8, "hld": 8,
+                            "operating_systems": 8, "dbms": 8, "computer_networks": 8},
+    }
+
+    recommendation = asyncio.run(
+        get_today_learning_node("user-1", db=FakeDB([]), onboarding=onboarding, recent_completions=[])
+    )
+
+    assert recommendation["track"] == "programming_fundamentals"
+
+    zero_ratings = {
+        "current_position": "5+",
+        "self_assessment": {"dsa": 0, "java": 0, "lld": 0, "hld": 0,
+                            "operating_systems": 0, "dbms": 0, "computer_networks": 0},
+    }
+    recommendation = asyncio.run(
+        get_today_learning_node("user-1", db=FakeDB([]), onboarding=zero_ratings, recent_completions=[])
+    )
+
+    assert recommendation["track"] == "programming_fundamentals"
+
+
+def test_onboarding_self_assessment_accepts_zero_as_no_knowledge():
+    assessment = OnboardingSelfAssessment(dsa=0)
+
+    assert assessment.dsa == 0
+    assert assessment.java == 0
 
 
 def test_ranking_prefers_low_confidence_and_high_weakness():

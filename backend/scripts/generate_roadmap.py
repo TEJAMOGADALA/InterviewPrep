@@ -33,6 +33,9 @@ COMPANIES = [
 
 def ci(**overrides: int) -> dict:
     """Build a company_importance dict (0..5) with default 3 for unspecified."""
+    unknown = set(overrides) - set(COMPANIES)
+    if unknown:
+        raise ValueError(f"ci() received unknown company id(s) not in COMPANIES: {sorted(unknown)}")
     base = {c: 3 for c in COMPANIES}
     for k, v in overrides.items():
         base[k] = v
@@ -142,6 +145,309 @@ def hld_case_topic(cid: str, label: str, description: str, *,
 
 
 # ---------------------------------------------------------------------------
+# PROGRAMMING FUNDAMENTALS
+# ---------------------------------------------------------------------------
+# Phase 1 curriculum sync (2026) — the canonical PF-101 subject
+# (`docs/curriculum/subjects/01-programming-fundamentals.md`) had no
+# corresponding track anywhere in the roadmap. Every downstream subject
+# (Java, DSA, DBMS, OS, CN, LLD, HLD) assumed programming fluency that was
+# never actually taught. This track is the language-independent on-ramp
+# every learner starts at. One topic per canonical module (29 modules,
+# Foundation -> Expert), matching the shallow-topic style already used for
+# OS/DBMS/CN modules elsewhere in this file — the source doc provides only
+# a "Major Areas" concept list per module, not exhaustive sub-lessons, so
+# no additional depth is invented beyond what's named in the doc.
+
+PF_TRACK = {
+    "id": "programming_fundamentals", "label": "Programming Fundamentals", "icon": "terminal",
+    "description": "The language-independent on-ramp: computational thinking, memory, complexity and "
+                   "engineering discipline before any specific language or system-level subject.",
+    "interview_importance": 2,
+    "company_importance": ci(),
+    "tags": ["fundamentals", "programming-basics"],
+    "modules": [
+        {"id": "pf.intro", "label": "Introduction to Programming",
+         "description": "Why programming exists, language history and how source becomes execution.",
+         "topics": [
+            {"id": "pf.intro.core", "label": "What Is Programming?",
+             "description": "History of programming languages, low-level vs high-level, compiled vs "
+                            "interpreted, source/executable/machine code, bytecode, runtime environment.",
+             "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 1, "mastery_weight": 0.7,
+             "tags": ["programming-basics", "compiled-interpreted", "bytecode"]},
+         ]},
+        {"id": "pf.computer_basics", "label": "Computer Basics for Programmers",
+         "description": "The hardware and encoding vocabulary every programmer needs.",
+         "topics": [
+            {"id": "pf.computer_basics.core", "label": "CPU, Memory & Encoding",
+             "description": "CPU, RAM, storage, input/output devices, registers, cache memory, binary "
+                            "numbers, bits and bytes, number systems, ASCII & Unicode.",
+             "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 1, "mastery_weight": 0.8,
+             "prerequisites": ["pf.intro.core"],
+             "tags": ["cpu", "memory", "binary", "encoding"]},
+         ]},
+        {"id": "pf.execution", "label": "Program Execution",
+         "description": "How a program actually runs from source to process.",
+         "topics": [
+            {"id": "pf.execution.core", "label": "Compilers, Linkers & the Runtime",
+             "description": "Compiler, interpreter, linker, loader, runtime, call stack (intro), heap "
+                            "(intro), program lifecycle.",
+             "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 1, "mastery_weight": 0.9,
+             "prerequisites": ["pf.computer_basics.core"],
+             "tags": ["compiler", "interpreter", "call-stack"]},
+         ]},
+        {"id": "pf.problem_solving", "label": "Problem Solving",
+         "description": "Computational thinking before any syntax is introduced.",
+         "topics": [
+            {"id": "pf.problem_solving.core", "label": "Computational Thinking",
+             "description": "Breaking problems into steps, algorithms, flowcharts, pseudocode, decision "
+                            "making, pattern recognition, abstraction.",
+             "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 2, "mastery_weight": 1.0,
+             "prerequisites": ["pf.execution.core"],
+             "tags": ["computational-thinking", "algorithms", "pseudocode"]},
+         ]},
+        {"id": "pf.variables", "label": "Variables",
+         "description": "Naming, scope and lifetime of stored values.",
+         "topics": [
+            {"id": "pf.variables.core", "label": "Variables, Constants & Scope",
+             "description": "Variables, constants, naming conventions, scope, lifetime.",
+             "estimated_minutes": 20, "difficulty": "easy", "interview_frequency": 1, "mastery_weight": 0.8,
+             "prerequisites": ["pf.problem_solving.core"],
+             "tags": ["variables", "scope"]},
+         ]},
+        {"id": "pf.data_types", "label": "Data Types",
+         "description": "What kinds of values a program can represent.",
+         "topics": [
+            {"id": "pf.data_types.core", "label": "Primitive & Non-Primitive Types",
+             "description": "Primitive types, non-primitive types, type conversion, type casting.",
+             "estimated_minutes": 25, "difficulty": "easy", "interview_frequency": 2, "mastery_weight": 0.9,
+             "prerequisites": ["pf.variables.core"],
+             "tags": ["data-types", "type-casting"]},
+         ]},
+        {"id": "pf.operators", "label": "Operators",
+         "description": "Combining values into expressions.",
+         "topics": [
+            {"id": "pf.operators.core", "label": "Arithmetic, Logical & Bitwise Operators",
+             "description": "Arithmetic, assignment, comparison, logical, bitwise (intro), ternary, "
+                            "operator precedence.",
+             "estimated_minutes": 25, "difficulty": "easy", "interview_frequency": 1, "mastery_weight": 0.8,
+             "prerequisites": ["pf.data_types.core"],
+             "tags": ["operators", "precedence"]},
+         ]},
+        {"id": "pf.io", "label": "Input & Output",
+         "description": "Getting data into and out of a program.",
+         "topics": [
+            {"id": "pf.io.core", "label": "Reading & Printing",
+             "description": "Reading input, printing output, formatting output.",
+             "estimated_minutes": 20, "difficulty": "easy", "interview_frequency": 1, "mastery_weight": 0.7,
+             "prerequisites": ["pf.operators.core"],
+             "tags": ["io"]},
+         ]},
+        {"id": "pf.control_flow", "label": "Control Flow",
+         "description": "Directing execution with conditions and loops.",
+         "topics": [
+            {"id": "pf.control_flow.core", "label": "Conditionals & Loops",
+             "description": "If, else, nested if, switch, loops, break, continue.",
+             "estimated_minutes": 25, "difficulty": "easy", "interview_frequency": 2, "mastery_weight": 1.0,
+             "prerequisites": ["pf.io.core"],
+             "tags": ["control-flow", "loops"]},
+         ]},
+        {"id": "pf.functions", "label": "Functions",
+         "description": "Structuring code into reusable, callable units.",
+         "topics": [
+            {"id": "pf.functions.core", "label": "Parameters, Returns & Pass Semantics",
+             "description": "Why functions, parameters, arguments, return values, pass-by-value, "
+                            "pass-by-reference (concept), recursion introduction.",
+             "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 2, "mastery_weight": 1.1,
+             "prerequisites": ["pf.control_flow.core"],
+             "tags": ["functions", "pass-by-value"]},
+         ]},
+        {"id": "pf.arrays", "label": "Arrays",
+         "description": "The first fixed-size, indexable data structure.",
+         "topics": [
+            {"id": "pf.arrays.core", "label": "Array Memory & Traversal",
+             "description": "Why arrays, memory representation, indexing, traversal, multi-dimensional "
+                            "arrays.",
+             "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 2, "mastery_weight": 1.1,
+             "prerequisites": ["pf.functions.core"],
+             "tags": ["arrays", "indexing"]},
+         ]},
+        {"id": "pf.strings", "label": "Strings",
+         "description": "Text as a sequence of characters.",
+         "topics": [
+            {"id": "pf.strings.core", "label": "Characters & String Operations",
+             "description": "Characters, strings, string operations, immutable vs mutable (concept).",
+             "estimated_minutes": 25, "difficulty": "easy", "interview_frequency": 2, "mastery_weight": 1.0,
+             "prerequisites": ["pf.arrays.core"],
+             "tags": ["strings", "immutability"]},
+         ]},
+        {"id": "pf.memory", "label": "Memory Fundamentals",
+         "description": "Where values actually live at runtime.",
+         "topics": [
+            {"id": "pf.memory.core", "label": "Stack, Heap & References",
+             "description": "Stack memory, heap memory, references, objects (concept), garbage "
+                            "collection (concept).",
+             "estimated_minutes": 30, "difficulty": "medium", "interview_frequency": 2, "mastery_weight": 1.2,
+             "prerequisites": ["pf.strings.core"],
+             "tags": ["stack", "heap", "garbage-collection"]},
+         ]},
+        {"id": "pf.error_handling", "label": "Error Handling",
+         "description": "Recognizing and recovering from things going wrong.",
+         "topics": [
+            {"id": "pf.error_handling.core", "label": "Error Types & Debugging Basics",
+             "description": "Syntax errors, runtime errors, logical errors, debugging basics.",
+             "estimated_minutes": 25, "difficulty": "medium", "interview_frequency": 2, "mastery_weight": 1.0,
+             "prerequisites": ["pf.memory.core"],
+             "tags": ["errors", "debugging"]},
+         ]},
+        {"id": "pf.modular", "label": "Modular Programming",
+         "description": "Organizing code so it stays maintainable as it grows.",
+         "topics": [
+            {"id": "pf.modular.core", "label": "Code Organization & Reuse",
+             "description": "Code organization, reusability, separation of concerns.",
+             "estimated_minutes": 20, "difficulty": "easy", "interview_frequency": 1, "mastery_weight": 0.9,
+             "prerequisites": ["pf.error_handling.core"],
+             "tags": ["modularity", "reusability"]},
+         ]},
+        {"id": "pf.recursion", "label": "Recursion",
+         "description": "Functions that call themselves — the on-ramp to DSA recursion.",
+         "topics": [
+            {"id": "pf.recursion.core", "label": "Recursive Thinking & Base Cases",
+             "description": "Call stack, base case, recursive thinking, tail recursion (concept).",
+             "estimated_minutes": 35, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.3,
+             "prerequisites": ["pf.modular.core"],
+             "tags": ["recursion", "call-stack"]},
+         ]},
+        {"id": "pf.complexity", "label": "Time & Space Complexity",
+         "description": "Reasoning about how algorithms scale.",
+         "topics": [
+            {"id": "pf.complexity.core", "label": "Big-O, Big-Omega & Big-Theta",
+             "description": "Why complexity matters, Big-O notation, Big-Omega, Big-Theta, constant, "
+                            "linear, logarithmic and quadratic time.",
+             "estimated_minutes": 40, "difficulty": "medium", "interview_frequency": 4, "mastery_weight": 1.4,
+             "prerequisites": ["pf.recursion.core"],
+             "tags": ["big-o", "complexity"]},
+         ]},
+        {"id": "pf.searching", "label": "Searching Fundamentals",
+         "description": "The first two search strategies, before DSA's pattern library.",
+         "topics": [
+            {"id": "pf.searching.core", "label": "Linear & Binary Search",
+             "description": "Linear search, binary search (concept).",
+             "estimated_minutes": 25, "difficulty": "easy", "interview_frequency": 3, "mastery_weight": 1.1,
+             "prerequisites": ["pf.complexity.core"],
+             "tags": ["searching", "binary-search"]},
+         ]},
+        {"id": "pf.sorting", "label": "Sorting Fundamentals",
+         "description": "The elementary O(n^2) sorts, before DSA's efficient sorts.",
+         "topics": [
+            {"id": "pf.sorting.core", "label": "Bubble, Selection & Insertion Sort",
+             "description": "Why sorting, stability, in-place vs out-of-place, bubble sort, selection "
+                            "sort, insertion sort.",
+             "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 2, "mastery_weight": 1.1,
+             "prerequisites": ["pf.searching.core"],
+             "tags": ["sorting", "stability"]},
+         ]},
+        {"id": "pf.paradigms", "label": "Programming Paradigms",
+         "description": "The major styles of structuring a program.",
+         "topics": [
+            {"id": "pf.paradigms.core", "label": "Procedural, OOP, Functional & Event-Driven",
+             "description": "Procedural programming, object-oriented programming, functional "
+                            "programming, declarative programming, event-driven programming.",
+             "estimated_minutes": 30, "difficulty": "medium", "interview_frequency": 2, "mastery_weight": 1.1,
+             "prerequisites": ["pf.sorting.core"],
+             "tags": ["paradigms", "oop", "functional"]},
+         ]},
+        {"id": "pf.code_quality", "label": "Code Quality",
+         "description": "What separates readable code from a code smell.",
+         "topics": [
+            {"id": "pf.code_quality.core", "label": "Readability, Naming & Refactoring Basics",
+             "description": "Readable code, naming, comments, code smells, refactoring basics.",
+             "estimated_minutes": 25, "difficulty": "easy", "interview_frequency": 2, "mastery_weight": 1.0,
+             "prerequisites": ["pf.paradigms.core"],
+             "tags": ["clean-code", "refactoring"]},
+         ]},
+        {"id": "pf.debugging", "label": "Debugging",
+         "description": "Systematically finding why a program misbehaves.",
+         "topics": [
+            {"id": "pf.debugging.core", "label": "Breakpoints, Stack Traces & Logging",
+             "description": "Breakpoints, stack trace, variable inspection, logging, assertions.",
+             "estimated_minutes": 25, "difficulty": "medium", "interview_frequency": 2, "mastery_weight": 1.0,
+             "prerequisites": ["pf.code_quality.core"],
+             "tags": ["debugging", "logging"]},
+         ]},
+        {"id": "pf.testing", "label": "Testing Fundamentals",
+         "description": "Verifying code behaves as intended.",
+         "topics": [
+            {"id": "pf.testing.core", "label": "Unit, Integration & Edge-Case Testing",
+             "description": "Why testing, unit testing, integration testing, manual testing, edge "
+                            "cases.",
+             "estimated_minutes": 25, "difficulty": "medium", "interview_frequency": 2, "mastery_weight": 1.0,
+             "prerequisites": ["pf.debugging.core"],
+             "tags": ["testing", "unit-testing"]},
+         ]},
+        {"id": "pf.swe_basics", "label": "Software Engineering Basics",
+         "description": "The team practices around writing code.",
+         "topics": [
+            {"id": "pf.swe_basics.core", "label": "SDLC, Version Control & Code Review",
+             "description": "SDLC, version control, Git basics, code review, documentation.",
+             "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 2, "mastery_weight": 1.0,
+             "prerequisites": ["pf.testing.core"],
+             "tags": ["sdlc", "git"]},
+         ]},
+        {"id": "pf.engineering_mindset", "label": "Engineering Mindset",
+         "description": "The heuristics that precede formal SOLID/LLD training.",
+         "topics": [
+            {"id": "pf.engineering_mindset.core", "label": "Clean Code, SOLID (Intro), DRY & KISS",
+             "description": "Clean code principles, SOLID (introduction), DRY, KISS, YAGNI.",
+             "estimated_minutes": 30, "difficulty": "medium", "interview_frequency": 2, "mastery_weight": 1.1,
+             "prerequisites": ["pf.swe_basics.core"],
+             "tags": ["solid", "dry", "kiss", "yagni"]},
+         ]},
+        {"id": "pf.design_thinking", "label": "Design Thinking",
+         "description": "Weighing trade-offs before writing a line of code.",
+         "topics": [
+            {"id": "pf.design_thinking.core", "label": "Decomposition, Trade-offs & Maintainability",
+             "description": "Problem decomposition, trade-offs, maintainability, scalability "
+                            "(introduction).",
+             "estimated_minutes": 25, "difficulty": "medium", "interview_frequency": 2, "mastery_weight": 1.0,
+             "prerequisites": ["pf.engineering_mindset.core"],
+             "tags": ["trade-offs", "maintainability"]},
+         ]},
+        {"id": "pf.performance_awareness", "label": "Performance Awareness",
+         "description": "The resource costs every engineer should notice.",
+         "topics": [
+            {"id": "pf.performance_awareness.core", "label": "CPU, Memory, IO & Network Cost",
+             "description": "CPU usage, memory usage, IO cost, network cost (introduction).",
+             "estimated_minutes": 25, "difficulty": "medium", "interview_frequency": 2, "mastery_weight": 1.0,
+             "prerequisites": ["pf.design_thinking.core"],
+             "tags": ["performance", "cpu", "memory"]},
+         ]},
+        {"id": "pf.security_awareness", "label": "Security Awareness",
+         "description": "The baseline security hygiene every engineer needs.",
+         "topics": [
+            {"id": "pf.security_awareness.core", "label": "Input Validation & Common Vulnerabilities",
+             "description": "Input validation, safe coding practices, common vulnerabilities "
+                            "(introduction).",
+             "estimated_minutes": 25, "difficulty": "medium", "interview_frequency": 2, "mastery_weight": 1.0,
+             "prerequisites": ["pf.performance_awareness.core"],
+             "tags": ["security", "input-validation"]},
+         ]},
+        {"id": "pf.professional_engineering", "label": "Professional Engineering",
+         "description": "The capstone: writing code the way a production team expects. Completing "
+                        "this module is the PF-101 exit gate every other subject's prerequisite "
+                        "points at.",
+         "topics": [
+            {"id": "pf.professional_engineering.core", "label": "Production Code & Technical Communication",
+             "description": "Writing production code, code reviews, technical communication, "
+                            "documentation standards, continuous learning.",
+             "estimated_minutes": 30, "difficulty": "medium", "interview_frequency": 2, "mastery_weight": 1.1,
+             "prerequisites": ["pf.security_awareness.core"],
+             "tags": ["production-code", "code-review"]},
+         ]},
+    ],
+}
+
+
+# ---------------------------------------------------------------------------
 # DSA
 # ---------------------------------------------------------------------------
 
@@ -165,11 +471,14 @@ DSA_TRACK = {
                  "pattern": "arrays", "estimated_minutes": 120, "difficulty": "easy",
                  "interview_frequency": 5, "mastery_weight": 2.0,
                  "tags": ["arrays", "linear"],
-                 "company_importance": ci(google=5, microsoft=5, amazon=5, atlassian=4, uber=5, linkedin=5, flipkart=5, goldman_sachs=5),
+                 "company_importance": ci(google=5, microsoft=5, atlassian=4, uber=5, linkedin=5, flipkart=5, goldman_sachs=5),
                  "learning_nodes": [
                     node("dsa.foundations.arrays.traversal", "Traversal & In-Place Ops",
                          "Reverse, rotate, and shift arrays with O(1) extra space.",
                          difficulty="easy", estimated_minutes=20, interview_frequency=4, mastery_weight=1.0,
+                         # Curriculum sync (2026) — DSA's canonical "Prerequisite Subjects":
+                         # Programming Fundamentals, Java. This is DSA's entry leaf.
+                         prerequisites=["pf.professional_engineering.core", "java.enterprise.core"],
                          problem_ids=["lc-189", "lc-27", "lc-283"], leetcode_tags=["array", "two-pointers"], neetcode_tags=["arrays-hashing"]),
                     node("dsa.foundations.arrays.kadane", "Kadane's Algorithm",
                          "Maximum subarray sum via running max — O(n) DP-in-disguise.",
@@ -495,7 +804,7 @@ DSA_TRACK = {
                  "interview_frequency": 4, "mastery_weight": 1.6,
                  "prerequisites": ["dsa.foundations.two_pointers"],
                  "tags": ["linked-list", "two-pointers"],
-                 "company_importance": ci(google=4, microsoft=5, amazon=4, adobe=5, atlassian=4, goldman_sachs=4, flipkart=4),
+                 "company_importance": ci(google=4, microsoft=5, adobe=5, atlassian=4, goldman_sachs=4, flipkart=4),
                  "learning_nodes": [
                     node("dsa.linear.linked_list.reverse", "Reverse & Merge",
                          "Iterative + recursive reverse; merge two sorted lists.",
@@ -898,6 +1207,9 @@ JAVA_TRACK = {
             {"id": "java.basics.programming_intro", "label": "What Is Programming? The JVM",
              "description": "Source → bytecode → JVM execution; compiling and running a first Java program.",
              "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 1, "mastery_weight": 0.8,
+             # Curriculum sync (2026) — Java's canonical "Prerequisite Subjects": Programming
+             # Fundamentals. This is Java's entry leaf.
+             "prerequisites": ["pf.professional_engineering.core"],
              "tags": ["basics", "jvm"]},
             {"id": "java.basics.variables_datatypes", "label": "Variables & Data Types",
              "description": "Primitives vs references, literals, type widening/narrowing, arrays as a "
@@ -1094,6 +1406,14 @@ JAVA_TRACK = {
              "description": "Interpreter → tiered compilation → deoptimization.",
              "estimated_minutes": 30, "difficulty": "hard", "interview_frequency": 2, "mastery_weight": 0.9,
              "tags": ["jit", "performance"]},
+            # Curriculum sync (2026) — canonical Module 19 "Performance" (JVM tuning, profiling,
+            # memory leaks, CPU profiling, JMH) had no corresponding topic.
+            {"id": "java.jvm.performance", "label": "JVM Performance & Profiling",
+             "description": "JVM tuning flags, CPU/heap profiling, memory-leak diagnosis, JMH micro-"
+                            "benchmarking.",
+             "estimated_minutes": 45, "difficulty": "hard", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["java.jvm.gc"],
+             "tags": ["performance", "profiling", "jmh"]},
          ]},
         {"id": "java.io_nio", "label": "IO & NIO",
          "description": "Blocking vs non-blocking IO, channels and selectors.",
@@ -1110,6 +1430,60 @@ JAVA_TRACK = {
              "description": "Serializable, transient, versioning, alternatives (Jackson, Protobuf).",
              "estimated_minutes": 30, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.0,
              "tags": ["serialization"]},
+            # Curriculum sync (2026) — canonical Module 14 "File Handling" (Path/Files API) had no
+            # corresponding topic; NIO channels above only covered network-style IO.
+            {"id": "java.io.file_handling", "label": "File Handling · Path & Files API",
+             "description": "java.nio.file.Path, Files API (read/write/copy/move/walk), file "
+                            "attributes, try-with-resources for file streams.",
+             "estimated_minutes": 30, "difficulty": "medium", "interview_frequency": 2, "mastery_weight": 0.9,
+             "prerequisites": ["java.nio.channels"],
+             "tags": ["file-io", "nio", "path"]},
+         ]},
+        # Curriculum sync (2026) — canonical Module 13 "Date & Time API" and Module 18
+        # "Reflection" had no corresponding modules anywhere in the Java track.
+        {"id": "java.datetime_reflection", "label": "Date/Time API & Reflection",
+         "description": "The modern java.time package and runtime introspection via Reflection.",
+         "topics": [
+            {"id": "java.datetime.core", "label": "java.time · LocalDate/Time/Duration",
+             "description": "LocalDate, LocalTime, LocalDateTime, ZonedDateTime, Duration, Period — "
+                            "replacing the legacy Date/Calendar APIs.",
+             "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 2, "mastery_weight": 0.9,
+             "tags": ["date-time", "java-time"]},
+            {"id": "java.reflection.core", "label": "Reflection, Annotations & Dynamic Proxies",
+             "description": "Reflection API for inspecting classes/methods/fields at runtime, custom "
+                            "annotations, dynamic proxies — the mechanism behind most DI frameworks.",
+             "estimated_minutes": 45, "difficulty": "hard", "interview_frequency": 2, "mastery_weight": 1.1,
+             "prerequisites": ["java.oop.abstraction"],
+             "tags": ["reflection", "annotations", "proxy"]},
+         ]},
+        # Curriculum sync (2026) — canonical Module 20 "Modern Java" (virtual threads, structured
+        # concurrency, pattern matching) and Module 21 "Enterprise Java" (JDBC, connection
+        # pooling, transactions) had no corresponding modules.
+        {"id": "java.modern", "label": "Modern Java",
+         "description": "Recent JDK features that show up in senior-level interviews.",
+         "topics": [
+            {"id": "java.modern.core", "label": "Virtual Threads, Structured Concurrency & Pattern Matching",
+             "description": "Virtual threads (Project Loom), structured concurrency, pattern matching "
+                            "for switch, record patterns, sealed classes.",
+             "estimated_minutes": 40, "difficulty": "hard", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["java.concurrency.executor"],
+             "tags": ["virtual-threads", "pattern-matching", "records"]},
+         ]},
+        {"id": "java.enterprise", "label": "Enterprise Java",
+         "description": "Java in production backends: databases, pooling and transactions. The "
+                        "track's capstone — other subjects' subject-level prerequisites point here.",
+         "topics": [
+            {"id": "java.enterprise.core", "label": "JDBC, Connection Pooling & Transactions",
+             "description": "JDBC fundamentals, connection pooling (HikariCP), programmatic and "
+                            "declarative transaction management, ORM overview (JPA/Hibernate). "
+                            # Curriculum sync (2026) — Java's canonical subject order places DBMS
+                            # AFTER Java, so this topic teaches JDBC mechanics without a hard
+                            # dependency on the DBMS track (avoids a Java <-> DBMS prerequisite
+                            # cycle); relational concepts are reinforced later once DBMS unlocks.
+                            "Relational concepts (ACID, keys) are reinforced later in DBMS.",
+             "estimated_minutes": 45, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["java.modern.core"],
+             "tags": ["jdbc", "transactions", "orm"]},
          ]},
     ],
 }
@@ -1142,7 +1516,13 @@ LLD_TRACK = {
                 # sub-node in this container, so it is the leaf that
                 # inherits an explicit OOP prerequisite.
                 {"id": "lld.principles.solid.srp", "label": "Single Responsibility",
-                 "prerequisites": ["java.oop.abstraction", "java.oop.inheritance"]},
+                 "prerequisites": ["java.oop.abstraction", "java.oop.inheritance",
+                                   # Curriculum sync (2026) — LLD's canonical "# Prerequisites":
+                                   # Programming Fundamentals, Java, DSA, DBMS, OS, CN. This is
+                                   # LLD's entry leaf; additive alongside the existing OOP edges.
+                                   "pf.professional_engineering.core", "java.enterprise.core",
+                                   "dsa.advanced.segment_tree.range_sum", "dbms.warehousing.core",
+                                   "os.modern_engineering.core", "cn.production.core"]},
                 {"id": "lld.principles.solid.ocp", "label": "Open / Closed"},
                 {"id": "lld.principles.solid.lsp", "label": "Liskov Substitution"},
                 {"id": "lld.principles.solid.isp", "label": "Interface Segregation"},
@@ -1297,6 +1677,69 @@ LLD_TRACK = {
              "description": "Strategy per channel + observer for subscriptions.",
              "estimated_minutes": 90, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.3,
              "tags": ["case-study"]},
+         ]},
+        # ------------------------------------------------------------------
+        # Curriculum sync (2026) — canonical Modules 12 (GRASP), 13 (Clean Code &
+        # Craftsmanship), 15 (Refactoring), 16 (Modeling Real Systems), 17 (Concurrency &
+        # Thread Safety) and 18 (Production Software Components) were entirely absent. Module
+        # 19 (Machine Coding Interviews) is already covered by lld.cases/lld.cat.* below.
+        # ------------------------------------------------------------------
+        {"id": "lld.craftsmanship", "label": "Craftsmanship & Refactoring",
+         "description": "The professional habits that separate working code from good code.",
+         "topics": [
+            {"id": "lld.craftsmanship.grasp", "label": "GRASP Principles",
+             "description": "Information Expert, Creator, Controller, Low Coupling, High Cohesion, "
+                            "Protected Variations.",
+             "estimated_minutes": 45, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["lld.principles.solid"],
+             "tags": ["grasp", "principles"]},
+            {"id": "lld.craftsmanship.clean_code", "label": "Clean Code & Craftsmanship",
+             "description": "Naming, method/class design, code smells, DRY/KISS/YAGNI, Boy Scout "
+                            "Rule, managing technical debt.",
+             "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 2, "mastery_weight": 1.0,
+             "prerequisites": ["lld.craftsmanship.grasp"],
+             "tags": ["clean-code", "code-smells"]},
+            {"id": "lld.craftsmanship.refactoring", "label": "Refactoring",
+             "description": "Long Method, Large Class, Feature Envy, Primitive Obsession and "
+                            "Duplicate Code smells; Extract Method/Class, Replace Conditional with "
+                            "Polymorphism, Introduce Parameter Object.",
+             "estimated_minutes": 40, "difficulty": "medium", "interview_frequency": 2, "mastery_weight": 1.1,
+             "prerequisites": ["lld.craftsmanship.clean_code"],
+             "tags": ["refactoring", "code-smells"]},
+         ]},
+        {"id": "lld.production_components", "label": "Production Software Design",
+         "description": "Bridging object modeling into layered, thread-safe, production-ready "
+                        "architecture. The track's capstone — other subjects' subject-level "
+                        "prerequisites point here.",
+         "topics": [
+            {"id": "lld.production_components.domain_modeling", "label": "Modeling Real Systems",
+             "description": "Entity, Value Object, Aggregate/Aggregate Root, Domain Service, "
+                            "Repository Pattern, Service Layer, DTO/Mapper, Layered Architecture.",
+             "estimated_minutes": 45, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["lld.craftsmanship.refactoring"],
+             "tags": ["domain-modeling", "repository-pattern", "dto"]},
+            {"id": "lld.production_components.thread_safety", "label": "Concurrency & Thread Safety",
+             "description": "Race conditions, deadlocks, reentrant/read-write locks, atomic "
+                            "variables, volatile, thread pools, producer-consumer, immutability, "
+                            "concurrent collections.",
+             "estimated_minutes": 45, "difficulty": "hard", "interview_frequency": 3, "mastery_weight": 1.3,
+             "prerequisites": ["lld.production_components.domain_modeling", "java.concurrency.sync"],
+             "tags": ["thread-safety", "concurrency"]},
+            {"id": "lld.production_components.infra", "label": "Production Software Components",
+             "description": "Dependency Injection & IoC, configuration management, logging "
+                            "framework, authentication/authorization modules, caching layer, "
+                            "session management, notification framework, plugin architecture, audit "
+                            "logging.",
+             "estimated_minutes": 40, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["lld.production_components.thread_safety"],
+             "tags": ["dependency-injection", "ioc", "logging", "caching"]},
+            {"id": "lld.production_components.core", "label": "Production Architecture",
+             "description": "Layered, Hexagonal, Clean and Onion architecture; modular monolith; "
+                            "event-driven design; Domain-Driven Design (overview); component "
+                            "boundaries; evolutionary architecture — the direct bridge into HLD.",
+             "estimated_minutes": 40, "difficulty": "hard", "interview_frequency": 3, "mastery_weight": 1.3,
+             "prerequisites": ["lld.production_components.infra"],
+             "tags": ["layered-architecture", "hexagonal", "ddd"]},
          ]},
         # ---------------- Categorized Case Studies (extended) ----------------
         {"id": "lld.cat.caching", "label": "Caching · Case Studies",
@@ -1499,6 +1942,12 @@ HLD_TRACK = {
             {"id": "hld.foundations.cap", "label": "CAP Theorem",
              "description": "Consistency vs Availability under partition.",
              "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 5, "mastery_weight": 1.4,
+             # Curriculum sync (2026) — HLD's canonical "# Prerequisites": Programming
+             # Fundamentals, Java, DSA, DBMS, OS, CN, LLD. This is HLD's entry leaf.
+             "prerequisites": ["pf.professional_engineering.core", "java.enterprise.core",
+                              "dsa.advanced.segment_tree.range_sum", "dbms.warehousing.core",
+                              "os.modern_engineering.core", "cn.production.core",
+                              "lld.production_components.core"],
              "tags": ["cap"]},
             {"id": "hld.foundations.pacelc", "label": "PACELC & Trade-offs",
              "description": "The under-appreciated `else` branch of CAP.",
@@ -1626,6 +2075,15 @@ HLD_TRACK = {
              "description": "Immutable log as source of truth.",
              "estimated_minutes": 45, "difficulty": "hard", "interview_frequency": 3, "mastery_weight": 1.2,
              "tags": ["event-sourcing"]},
+            # Curriculum sync (2026) — canonical Module 13 "Consistency & Distributed
+            # Transactions" (2PC/Saga/idempotency) had no corresponding topic.
+            {"id": "hld.distributed.consistency_patterns", "label": "Consistency & Distributed Transactions",
+             "description": "Two-phase & three-phase commit, the Saga pattern, idempotency, "
+                            "compensating transactions, ACID vs BASE trade-offs at distributed "
+                            "scale.",
+             "estimated_minutes": 45, "difficulty": "hard", "interview_frequency": 4, "mastery_weight": 1.4,
+             "prerequisites": ["hld.distributed.systems", "hld.foundations.consistency"],
+             "tags": ["saga", "2pc", "idempotency"]},
          ]},
         {"id": "hld.security", "label": "Security & Reliability",
          "description": "Authn/authz, secrets and resiliency patterns.",
@@ -1643,6 +2101,67 @@ HLD_TRACK = {
              "description": "Circuit breaker, bulkhead, retry with backoff, timeouts.",
              "estimated_minutes": 45, "difficulty": "medium", "interview_frequency": 4, "mastery_weight": 1.3,
              "tags": ["resiliency"]},
+            # Curriculum sync (2026) — canonical Module 18 "Security & Reliability" also names
+            # secrets management, Zero Trust and disaster recovery, which had no corresponding
+            # topic (only auth/rate-limit/resiliency existed).
+            {"id": "hld.security.secrets_compliance", "label": "Secrets, Zero Trust & Disaster Recovery",
+             "description": "Secrets management (Vault/KMS), Zero Trust networking, backup strategy "
+                            "and disaster recovery, compliance overview (PCI-DSS/SOC2).",
+             "estimated_minutes": 40, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["hld.security.auth"],
+             "tags": ["secrets", "zero-trust", "disaster-recovery"]},
+         ]},
+        # ------------------------------------------------------------------
+        # Curriculum sync (2026) — canonical Modules 2 (Architectural Thinking), 10
+        # (Communication Patterns), 7 (API Gateway concept), 16 (Cloud-Native Architecture),
+        # 17 (Observability & Monitoring concept) and 20 (Software Architecture Mastery) had
+        # no corresponding foundational-concept topics (only case studies existed for some).
+        # ------------------------------------------------------------------
+        {"id": "hld.architecture", "label": "Architectural Thinking & Communication",
+         "description": "How to decompose a system and choose how its parts talk to each other.",
+         "topics": [
+            {"id": "hld.architecture.thinking", "label": "Architectural Thinking",
+             "description": "System decomposition, monolith vs microservices at the architecture "
+                            "level, coupling & cohesion at system scale, layered vs hexagonal "
+                            "system architecture.",
+             "estimated_minutes": 40, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["hld.foundations.scalability"],
+             "tags": ["architecture", "decomposition"]},
+            {"id": "hld.architecture.communication", "label": "Communication Patterns",
+             "description": "REST vs gRPC vs GraphQL, synchronous vs asynchronous communication, "
+                            "and when to reach for WebSockets/SSE/RPC in a distributed system.",
+             "estimated_minutes": 40, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["hld.architecture.thinking"],
+             "tags": ["rest", "grpc", "graphql"]},
+            {"id": "hld.architecture.api_gateway", "label": "API Gateway & Reverse Proxy",
+             "description": "Routing, authentication, rate-limiting and request transformation at "
+                            "the edge; Backend-for-Frontend pattern.",
+             "estimated_minutes": 35, "difficulty": "medium", "interview_frequency": 4, "mastery_weight": 1.3,
+             "prerequisites": ["hld.architecture.communication", "hld.security.rate_limit"],
+             "tags": ["api-gateway", "reverse-proxy", "bff"]},
+         ]},
+        {"id": "hld.platform", "label": "Cloud-Native & Platform Engineering",
+         "description": "Running distributed systems reliably at cloud scale. The track's capstone "
+                        "module.",
+         "topics": [
+            {"id": "hld.platform.cloud_native", "label": "Cloud-Native Architecture",
+             "description": "IaaS/PaaS/SaaS, containers & Kubernetes at HLD scale, auto-scaling, "
+                            "Infrastructure as Code, multi-region and multi-cloud deployment.",
+             "estimated_minutes": 40, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["hld.architecture.api_gateway"],
+             "tags": ["cloud-native", "kubernetes", "iac"]},
+            {"id": "hld.platform.observability", "label": "Observability & Monitoring",
+             "description": "SLIs/SLOs/SLAs, distributed tracing, metrics & logging pipelines, "
+                            "alerting, incident response, root-cause analysis.",
+             "estimated_minutes": 40, "difficulty": "medium", "interview_frequency": 4, "mastery_weight": 1.3,
+             "prerequisites": ["hld.platform.cloud_native"],
+             "tags": ["observability", "sli-slo", "tracing"]},
+            {"id": "hld.platform.core", "label": "Software Architecture Mastery",
+             "description": "Architecture Decision Records, advanced service-mesh patterns, "
+                            "platform engineering, continuous architectural evolution.",
+             "estimated_minutes": 35, "difficulty": "hard", "interview_frequency": 2, "mastery_weight": 1.2,
+             "prerequisites": ["hld.platform.observability"],
+             "tags": ["adr", "service-mesh", "platform-engineering"]},
          ]},
         {"id": "hld.cases", "label": "Case Studies · Classics",
          "description": "The evergreen system-design walk-throughs — each with the full 10-part breakdown.",
@@ -1892,6 +2411,9 @@ OS_TRACK = {
             {"id": "os.foundations.intro", "label": "What Is an Operating System?",
              "description": "Kernel vs user mode, system calls, the OS as a resource manager.",
              "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 3, "mastery_weight": 1.0,
+             # Curriculum sync (2026) — OS's canonical "# Prerequisites" section: Programming
+             # Fundamentals, Java, Data Structures & Algorithms. This is OS's entry leaf.
+             "prerequisites": ["pf.professional_engineering.core", "java.enterprise.core", "dsa.advanced.segment_tree.range_sum"],
              "tags": ["os", "foundations", "kernel"]},
          ]},
         {"id": "os.processes", "label": "Processes & Threads",
@@ -1950,6 +2472,99 @@ OS_TRACK = {
              "estimated_minutes": 45, "difficulty": "hard", "interview_frequency": 3, "mastery_weight": 1.2,
              "tags": ["io"]},
          ]},
+        # ------------------------------------------------------------------
+        # Curriculum sync (2026) — canonical Modules 12-19 (Level 3 Intermediate tail through
+        # Level 4 Advanced) were entirely absent: the doc gives these subjects rich, non-
+        # boilerplate "Major Areas" content (unlike DSA/DBMS), so real gaps here are genuine
+        # sync debt, not invented curriculum.
+        # ------------------------------------------------------------------
+        {"id": "os.security", "label": "Security & Protection",
+         "description": "How the OS protects processes, users, files and memory from each other.",
+         "topics": [
+            {"id": "os.security.core", "label": "Access Control, Isolation & Sandboxing",
+             "description": "Authentication vs authorization, protection domains, user/kernel mode, "
+                            "access matrix, ACLs, capabilities, process isolation, memory protection, "
+                            "secure boot, sandboxing (SELinux/AppArmor).",
+             "estimated_minutes": 45, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["os.io.models"],
+             "tags": ["security", "access-control", "sandboxing"]},
+         ]},
+        {"id": "os.multiprocessor", "label": "Multiprocessor Systems",
+         "description": "Scheduling and coordinating execution across multiple CPU cores.",
+         "topics": [
+            {"id": "os.multiprocessor.core", "label": "SMP, NUMA & Cache Coherence",
+             "description": "Symmetric/asymmetric multiprocessing, multi-core systems, NUMA, CPU "
+                            "affinity, cache coherence, false sharing, inter-processor communication.",
+             "estimated_minutes": 45, "difficulty": "hard", "interview_frequency": 2, "mastery_weight": 1.1,
+             "prerequisites": ["os.security.core"],
+             "tags": ["smp", "numa", "cache-coherence"]},
+         ]},
+        {"id": "os.distributed", "label": "Distributed Operating Systems",
+         "description": "Coordinating computation and resources across multiple machines.",
+         "topics": [
+            {"id": "os.distributed.core", "label": "RPC, Clock Sync & Distributed Mutual Exclusion",
+             "description": "Network transparency, RPC, distributed file systems, logical/vector "
+                            "clocks, distributed mutual exclusion, consensus (intro), replication, "
+                            "fault tolerance.",
+             "estimated_minutes": 45, "difficulty": "hard", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["os.multiprocessor.core"],
+             "tags": ["distributed-os", "rpc", "clocks"]},
+         ]},
+        {"id": "os.virtualization", "label": "Virtualization & Containers",
+         "description": "How VMs and containers share hardware efficiently.",
+         "topics": [
+            {"id": "os.virtualization.core", "label": "Hypervisors, Namespaces & cgroups",
+             "description": "Type-1 vs Type-2 hypervisors, full vs para virtualization, VMs vs "
+                            "containers, Linux namespaces, cgroups, Docker architecture, OCI, "
+                            "Kubernetes overview.",
+             "estimated_minutes": 45, "difficulty": "medium", "interview_frequency": 4, "mastery_weight": 1.3,
+             "prerequisites": ["os.distributed.core"],
+             "tags": ["virtualization", "containers", "docker", "cgroups"]},
+         ]},
+        {"id": "os.kernel", "label": "Kernel Architecture & Internals",
+         "description": "How the kernel itself is designed and how it boots.",
+         "topics": [
+            {"id": "os.kernel.core", "label": "Monolithic vs Microkernel & Boot Process",
+             "description": "Monolithic, microkernel, hybrid and modular kernel designs; boot "
+                            "process, interrupt/exception handling, kernel threads/modules, kernel "
+                            "synchronization and memory management.",
+             "estimated_minutes": 40, "difficulty": "hard", "interview_frequency": 2, "mastery_weight": 1.1,
+             "prerequisites": ["os.virtualization.core"],
+             "tags": ["kernel", "monolithic", "microkernel"]},
+         ]},
+        {"id": "os.performance", "label": "Performance Engineering",
+         "description": "Measuring and optimizing OS-level performance under real workloads.",
+         "topics": [
+            {"id": "os.performance.core", "label": "Profiling, Bottlenecks & Capacity Planning",
+             "description": "CPU/memory utilization, throughput vs latency, context-switch overhead, "
+                            "system profiling, load average, CPU-bound vs IO-bound workloads, "
+                            "capacity planning.",
+             "estimated_minutes": 40, "difficulty": "hard", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["os.kernel.core"],
+             "tags": ["performance", "profiling", "bottlenecks"]},
+         ]},
+        {"id": "os.reliability", "label": "Reliability & Fault Tolerance",
+         "description": "How the OS stays available and recovers from failure.",
+         "topics": [
+            {"id": "os.reliability.core", "label": "Checkpointing, Journaling & Disaster Recovery",
+             "description": "Reliability vs availability, error detection, failure recovery, "
+                            "checkpointing, journaling, crash recovery, redundancy, disaster recovery.",
+             "estimated_minutes": 35, "difficulty": "medium", "interview_frequency": 2, "mastery_weight": 1.1,
+             "prerequisites": ["os.performance.core"],
+             "tags": ["reliability", "fault-tolerance", "journaling"]},
+         ]},
+        {"id": "os.modern_engineering", "label": "OS in Modern Engineering",
+         "description": "Bridging OS concepts with cloud, backend and production engineering. The "
+                        "track's capstone — other subjects' subject-level prerequisites point here.",
+         "topics": [
+            {"id": "os.modern_engineering.core", "label": "OS in Cloud, Kubernetes & Production Troubleshooting",
+             "description": "OS concepts in backend/cloud engineering, containers and microservices, "
+                            "Kubernetes scheduling, resource isolation, syscalls in backend "
+                            "applications, production troubleshooting.",
+             "estimated_minutes": 35, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.1,
+             "prerequisites": ["os.reliability.core"],
+             "tags": ["cloud", "kubernetes", "production"]},
+         ]},
     ],
 }
 
@@ -1977,6 +2592,9 @@ DBMS_TRACK = {
              "description": "Primary/candidate/foreign/composite keys, referential integrity — "
                             "the vocabulary every schema and join question builds on.",
              "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 4, "mastery_weight": 1.2,
+             # Curriculum sync (2026) — DBMS's canonical "Prerequisite Subjects": Programming
+             # Fundamentals, Java. This is DBMS's entry leaf.
+             "prerequisites": ["pf.professional_engineering.core", "java.enterprise.core"],
              "tags": ["keys", "foundations"]},
             {"id": "dbms.relational.er_model", "label": "ER Modelling",
              "description": "Entities, relationships, cardinality and converting an ER diagram into tables.",
@@ -2058,6 +2676,39 @@ DBMS_TRACK = {
              "estimated_minutes": 45, "difficulty": "hard", "interview_frequency": 4, "mastery_weight": 1.3,
              "tags": ["replication"]},
          ]},
+        # Curriculum sync (2026) — canonical Modules 11-12 "Storage Internals" / "Database
+        # Architecture" are named in the source doc's module list but the doc supplies no
+        # granular "Major Areas" content for them (boilerplate placeholder, like every other
+        # DBMS module) — only the module names themselves are canonical. Added as minimal,
+        # traceable stubs; no fine-grained content is invented beyond well-established DB
+        # engineering vocabulary.
+        {"id": "dbms.internals", "label": "Storage & Architecture Internals",
+         "description": "How a database engine is put together under the query layer.",
+         "topics": [
+            {"id": "dbms.internals.storage", "label": "Storage Internals",
+             "description": "Page/block layout, heap files, buffer pool, write-ahead logging (WAL).",
+             "estimated_minutes": 40, "difficulty": "hard", "interview_frequency": 2, "mastery_weight": 1.1,
+             "prerequisites": ["dbms.relational.indexing"],
+             "tags": ["storage-internals", "wal"]},
+            {"id": "dbms.internals.architecture", "label": "Database Architecture",
+             "description": "Query parser, planner/optimizer, executor and storage-engine layering "
+                            "inside a typical RDBMS.",
+             "estimated_minutes": 30, "difficulty": "medium", "interview_frequency": 2, "mastery_weight": 1.0,
+             "tags": ["architecture"]},
+         ]},
+        # Curriculum sync (2026) — canonical Module 17 "Data Warehousing" (same boilerplate-only
+        # doc treatment as above).
+        {"id": "dbms.warehousing", "label": "Data Warehousing",
+         "description": "Analytical (OLAP) storage vs transactional (OLTP) storage. The track's "
+                        "capstone — other subjects' subject-level prerequisites point here.",
+         "topics": [
+            {"id": "dbms.warehousing.core", "label": "OLAP, Star Schema & ETL",
+             "description": "OLTP vs OLAP, star/snowflake schema, fact/dimension tables, ETL "
+                            "pipelines.",
+             "estimated_minutes": 30, "difficulty": "medium", "interview_frequency": 2, "mastery_weight": 1.0,
+             "prerequisites": ["dbms.internals.architecture"],
+             "tags": ["olap", "data-warehouse", "etl"]},
+         ]},
     ],
 }
 
@@ -2081,6 +2732,11 @@ CN_TRACK = {
             {"id": "cn.foundations.osi", "label": "OSI vs TCP-IP Model",
              "description": "Layers, PDUs, encapsulation.",
              "estimated_minutes": 30, "difficulty": "easy", "interview_frequency": 4, "mastery_weight": 1.1,
+             # Curriculum sync (2026) — CN's canonical "Prerequisite Subjects": Programming
+             # Fundamentals, Java, Data Structures & Algorithms, Operating Systems. This is CN's
+             # entry leaf.
+             "prerequisites": ["pf.professional_engineering.core", "java.enterprise.core",
+                              "dsa.advanced.segment_tree.range_sum", "os.modern_engineering.core"],
              "tags": ["osi"]},
             {"id": "cn.foundations.tcp_ip", "label": "TCP / IP",
              "description": "3-way handshake, flow control, congestion control.",
@@ -2136,6 +2792,68 @@ CN_TRACK = {
              "description": "Rate limiting, scrubbing, anycast.",
              "estimated_minutes": 30, "difficulty": "medium", "interview_frequency": 2, "mastery_weight": 0.9,
              "tags": ["ddos"]},
+         ]},
+        # ------------------------------------------------------------------
+        # Curriculum sync (2026) — canonical Modules 5, 7, 8, 11, 12, 13, 16, 17, 18(partial), 19
+        # were entirely absent despite the CN doc being richly authored (v2.0, non-boilerplate).
+        # ------------------------------------------------------------------
+        {"id": "cn.addressing", "label": "Addressing & the Data Link Layer",
+         "description": "How devices are identified at Layer 2 and Layer 3.",
+         "topics": [
+            {"id": "cn.addressing.ip", "label": "IP Addressing & Subnetting",
+             "description": "IPv4 & IPv6, CIDR notation, subnetting, NAT, PAT, ICMP.",
+             "estimated_minutes": 45, "difficulty": "medium", "interview_frequency": 4, "mastery_weight": 1.3,
+             "prerequisites": ["cn.foundations.tcp_ip"],
+             "tags": ["ip-addressing", "cidr", "subnetting", "nat"]},
+            {"id": "cn.addressing.datalink", "label": "Data Link Layer & Network Devices",
+             "description": "MAC addressing, ARP, Ethernet, VLANs, CRC, and the devices (hubs, "
+                            "switches, routers, access points) that make up a network.",
+             "estimated_minutes": 40, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.1,
+             "prerequisites": ["cn.addressing.ip"],
+             "tags": ["mac", "arp", "vlan", "network-devices"]},
+         ]},
+        {"id": "cn.routing_switching", "label": "Routing, Switching & Network Services",
+         "description": "How packets find their way and how core network services support them.",
+         "topics": [
+            {"id": "cn.routing_switching.routing", "label": "Routing & Switching",
+             "description": "RIP, OSPF, BGP, ECMP routing; MAC learning, CAM table, VLAN trunking, "
+                            "Spanning Tree Protocol.",
+             "estimated_minutes": 45, "difficulty": "hard", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["cn.addressing.datalink"],
+             "tags": ["routing", "bgp", "ospf", "switching", "stp"]},
+            {"id": "cn.routing_switching.services", "label": "Network Services & Transport Internals",
+             "description": "DHCP, reverse proxy; sliding-window flow control, congestion avoidance, "
+                            "sockets and ports underneath the TCP handshake.",
+             "estimated_minutes": 40, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.1,
+             "prerequisites": ["cn.foundations.dns"],
+             "tags": ["dhcp", "proxy", "congestion-control", "sockets"]},
+         ]},
+        {"id": "cn.cloud_networking", "label": "Cloud & Distributed Networking",
+         "description": "How networking works once workloads move into the cloud and microservices.",
+         "topics": [
+            {"id": "cn.cloud_networking.cloud", "label": "Cloud Networking",
+             "description": "VPCs, public/private subnets, security groups vs NACLs, NAT gateway, "
+                            "VPC peering, hybrid cloud connectivity.",
+             "estimated_minutes": 45, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["cn.routing_switching.services"],
+             "tags": ["vpc", "cloud-networking", "security-groups"]},
+            {"id": "cn.cloud_networking.distributed", "label": "Distributed Networking & Modern Protocols",
+             "description": "Service discovery, API gateway, service mesh, Kubernetes networking, "
+                            "sidecar pattern, gRPC and MQTT.",
+             "estimated_minutes": 40, "difficulty": "hard", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["cn.cloud_networking.cloud"],
+             "tags": ["service-mesh", "api-gateway", "grpc"]},
+         ]},
+        {"id": "cn.production", "label": "Networking in Production Systems",
+         "description": "Bridging networking theory with real-world production architectures. The "
+                        "track's capstone — other subjects' subject-level prerequisites point here.",
+         "topics": [
+            {"id": "cn.production.core", "label": "CDN Architecture, Global LB & Network Observability",
+             "description": "End-to-end request lifecycle, CDN architecture, global load balancing "
+                            "and geo-routing, multi-region deployment, network observability.",
+             "estimated_minutes": 40, "difficulty": "medium", "interview_frequency": 3, "mastery_weight": 1.2,
+             "prerequisites": ["cn.cloud_networking.distributed"],
+             "tags": ["cdn", "global-load-balancing", "observability"]},
          ]},
     ],
 }
@@ -2344,7 +3062,7 @@ RESUME_TRACK = {
 }
 
 
-TRACKS: list[dict] = [DSA_TRACK, JAVA_TRACK, LLD_TRACK, HLD_TRACK, OS_TRACK, DBMS_TRACK, CN_TRACK,
+TRACKS: list[dict] = [PF_TRACK, DSA_TRACK, JAVA_TRACK, LLD_TRACK, HLD_TRACK, OS_TRACK, DBMS_TRACK, CN_TRACK,
                        PROJECTS_TRACK, BEHAVIORAL_TRACK, RESUME_TRACK]
 
 
@@ -2355,6 +3073,39 @@ TRACKS: list[dict] = [DSA_TRACK, JAVA_TRACK, LLD_TRACK, HLD_TRACK, OS_TRACK, DBM
 _DEFAULT_INTERVIEW_FREQUENCY = 3
 _DEFAULT_MASTERY_WEIGHT = 1.0
 _DEFAULT_ESTIMATED_MINUTES = 30
+
+# RC1.3.7 Phase 5 — derived (never fabricated) leaf-level metadata.
+# `interview_importance` was previously authored ONLY on the 10 track
+# objects (a UI label there) and always absent on topic/subtopic/node
+# leaves — `ranking.py`'s urgency bonus already reads
+# `float(node.get("interview_importance") or 0.0)` expecting the SAME 0-5
+# numeric scale as `interview_frequency`, so it was silently a permanent
+# no-op for every real candidate. Stamping the numeric value here (mirrored
+# from the node's own `interview_frequency`, itself already populated on
+# essentially every node) activates that existing, previously-dead ranking
+# term for the first time — purely additive, backward compatible (old
+# behavior was "always +0 from this term"; the field's type/scale is
+# unchanged from what ranking.py already expected).
+def _default_interview_importance(n: dict) -> int:
+    return int(n.get("interview_frequency", _DEFAULT_INTERVIEW_FREQUENCY))
+
+
+def _default_learning_objectives(n: dict, label: str) -> list[str]:
+    """Template objectives strictly from fields already authored on the node.
+
+    Never invents curriculum content — only restates the node's own label,
+    pattern and problem linkage as learner-facing objective statements, so
+    every node has non-empty `learning_objectives` (RC1.3.7 Phase 5) without
+    fabricating new pedagogical facts.
+    """
+    objectives = [f"Explain the core idea behind {label}."]
+    pattern = n.get("pattern")
+    if pattern:
+        objectives.append(f"Recognize when to apply the {pattern} pattern in an interview problem.")
+    if n.get("problem_ids"):
+        objectives.append(f"Independently solve the practice problems mapped to {label}.")
+    objectives.append(f"Discuss the complexity and trade-offs of {label} out loud, interview-style.")
+    return objectives
 _DEFAULT_DIFFICULTY = "medium"
 
 # ---------------------------------------------------------------------------
@@ -2366,6 +3117,20 @@ _DEFAULT_DIFFICULTY = "medium"
 # `learning_stage` is a UI/journey-grouping label only — it is never read by
 # unlock/ranking/ROI logic, so it cannot change any gating behavior.
 _MODULE_LEARNING_STAGE: dict[str, str] = {
+    # Programming Fundamentals (2026 curriculum sync — mirrors its own strictly
+    # sequential "Unlocks" progression: syntax/mechanics -> core control-flow ->
+    # complexity/quality practices -> professional-engineering mindset).
+    "pf.intro": "foundation", "pf.computer_basics": "foundation", "pf.execution": "foundation",
+    "pf.problem_solving": "foundation", "pf.variables": "foundation", "pf.data_types": "foundation",
+    "pf.operators": "foundation", "pf.io": "foundation",
+    "pf.control_flow": "core", "pf.functions": "core", "pf.arrays": "core", "pf.strings": "core",
+    "pf.memory": "core", "pf.error_handling": "core", "pf.modular": "core", "pf.recursion": "core",
+    "pf.complexity": "intermediate", "pf.searching": "intermediate", "pf.sorting": "intermediate",
+    "pf.paradigms": "intermediate", "pf.code_quality": "intermediate", "pf.debugging": "intermediate",
+    "pf.testing": "intermediate",
+    "pf.swe_basics": "advanced", "pf.engineering_mindset": "advanced", "pf.design_thinking": "advanced",
+    "pf.performance_awareness": "advanced", "pf.security_awareness": "advanced",
+    "pf.professional_engineering": "advanced",
     # DSA
     "dsa.foundations": "foundation", "dsa.windows_search": "core",
     "dsa.linear_structures": "core", "dsa.trees_graphs": "intermediate",
@@ -2375,21 +3140,36 @@ _MODULE_LEARNING_STAGE: dict[str, str] = {
     "java.basics": "foundation", "java.oop": "core", "java.collections": "core",
     "java.generics_exceptions": "intermediate", "java.streams_lambdas": "intermediate",
     "java.concurrency": "advanced", "java.jvm": "advanced", "java.io_nio": "intermediate",
+    # Java (2026 curriculum sync additions)
+    "java.datetime_reflection": "intermediate", "java.modern": "advanced", "java.enterprise": "advanced",
     # LLD
     "lld.principles": "foundation", "lld.patterns": "core",
     "lld.uml_modelling": "core", "lld.cases": "interview",
+    # LLD (2026 curriculum sync additions)
+    "lld.craftsmanship": "core", "lld.production_components": "advanced",
     # HLD
     "hld.foundations": "foundation", "hld.caching": "core", "hld.databases": "core",
     "hld.messaging": "intermediate", "hld.distributed": "advanced",
     "hld.security": "advanced", "hld.cases": "interview",
+    # HLD (2026 curriculum sync additions)
+    "hld.architecture": "advanced", "hld.platform": "advanced",
     # OS
     "os.foundations": "foundation", "os.processes": "core",
     "os.memory": "intermediate", "os.filesystems": "intermediate",
+    # OS (2026 curriculum sync additions)
+    "os.security": "intermediate", "os.multiprocessor": "intermediate",
+    "os.distributed": "advanced", "os.virtualization": "advanced", "os.kernel": "advanced",
+    "os.performance": "advanced", "os.reliability": "advanced", "os.modern_engineering": "advanced",
     # DBMS
     "dbms.relational": "foundation", "dbms.concurrency": "intermediate",
     "dbms.nosql": "core", "dbms.scaling": "advanced",
+    # DBMS (2026 curriculum sync additions)
+    "dbms.internals": "advanced", "dbms.warehousing": "advanced",
     # Computer Networks
     "cn.foundations": "foundation", "cn.advanced": "intermediate", "cn.security": "advanced",
+    # Computer Networks (2026 curriculum sync additions)
+    "cn.addressing": "intermediate", "cn.routing_switching": "intermediate",
+    "cn.cloud_networking": "advanced", "cn.production": "advanced",
 }
 _LEARNING_STAGE_MODULE_PREFIXES: list[tuple[str, str]] = [
     ("lld.cat.", "interview"), ("hld.cat.", "interview"),
@@ -2429,6 +3209,8 @@ def _stamp_defaults(n: dict, *, track_id: str, module_id: str, category_id: str,
     n["version"] = VERSION
     if level in ("topic", "subtopic", "node"):
         n.setdefault("learning_stage", _infer_learning_stage(track_id, module_id))
+        n.setdefault("interview_importance", _default_interview_importance(n))
+        n.setdefault("learning_objectives", _default_learning_objectives(n, n.get("label", n["id"])))
 
 
 
@@ -2474,6 +3256,30 @@ def _validate_dag(all_ids: set[str], all_nodes: list[dict]) -> None:
     for nid in list(graph.keys()):
         if color[nid] == WHITE:
             dfs(nid, [])
+
+
+def _validate_metadata_integrity(all_nodes: list[dict], all_ids: set[str]) -> None:
+    """RC1.3.7 Phase 10 \u2014 catch broken refs and invalid mappings at build time.
+
+    Complements `_validate_dag` (which only checks `prerequisites`): verifies
+    every hand- or auto-authored `related` id resolves to a real node, and
+    every `company_importance` key is one of the canonical `COMPANIES` (the
+    `amazon=` leak this replaces was exactly this class of bug).
+    """
+    valid_companies = set(COMPANIES)
+    broken_related: list[tuple[str, str]] = []
+    invalid_company_keys: list[tuple[str, str]] = []
+    for n in all_nodes:
+        for rid in n.get("related") or []:
+            if rid not in all_ids:
+                broken_related.append((n["id"], rid))
+        for key in (n.get("company_importance") or {}):
+            if key not in valid_companies:
+                invalid_company_keys.append((n["id"], key))
+    if broken_related:
+        raise ValueError(f"Nodes reference unknown 'related' ids: {broken_related[:10]}")
+    if invalid_company_keys:
+        raise ValueError(f"Nodes contain invalid company_importance keys: {invalid_company_keys[:10]}")
 
 
 def _collect_all_nodes(tracks: list[dict]) -> list[dict]:
@@ -2707,6 +3513,7 @@ def build() -> dict:
     _propagate_container_prerequisites(all_nodes, by_id)
     _validate_dag(ids, all_nodes)
     _auto_link_related(TRACKS, all_nodes)
+    _validate_metadata_integrity(all_nodes, ids)
 
     return {
         "version": VERSION,

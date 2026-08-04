@@ -60,13 +60,13 @@ class ProfileUpdate(BaseModel):
 # ============ Onboarding ============
 
 class OnboardingSelfAssessment(BaseModel):
-    dsa: int = Field(ge=1, le=10, default=5)
-    java: int = Field(ge=1, le=10, default=5)
-    lld: int = Field(ge=1, le=10, default=5)
-    hld: int = Field(ge=1, le=10, default=5)
-    operating_systems: int = Field(ge=1, le=10, default=5)
-    dbms: int = Field(ge=1, le=10, default=5)
-    computer_networks: int = Field(ge=1, le=10, default=5)
+    dsa: int = Field(ge=0, le=10, default=0)
+    java: int = Field(ge=0, le=10, default=0)
+    lld: int = Field(ge=0, le=10, default=0)
+    hld: int = Field(ge=0, le=10, default=0)
+    operating_systems: int = Field(ge=0, le=10, default=0)
+    dbms: int = Field(ge=0, le=10, default=0)
+    computer_networks: int = Field(ge=0, le=10, default=0)
 
 
 class OnboardingPayload(BaseModel):

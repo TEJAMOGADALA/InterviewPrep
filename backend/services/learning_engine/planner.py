@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Iterable, List, Optional
 
+from models import TOPIC_KEYS
 from roadmap import get_roadmap
 from services.learning_engine.builder import build_learning_recommendation
 from services.learning_engine.candidates import generate_candidate_nodes
@@ -25,6 +26,27 @@ from services.progress_engine import load_user_progress_rows
 
 CORE_TRACKS = ["operating_systems", "dbms", "computer_networks"]
 COMPLETED_STATUSES = {"completed", "mastered", "revision_due"}
+ENTRY_TRACK_ID = "programming_fundamentals"
+BEGINNER_POSITIONS = {"student", "fresher", "0-1"}
+
+
+def _is_first_time_beginner(onboarding: Optional[dict], recent_completions: Optional[Iterable[dict]]) -> bool:
+    """Return whether a learner must begin from the universal entry track."""
+    if not onboarding or recent_completions:
+        return False
+
+    position = str(onboarding.get("current_position") or "").strip().lower()
+    if position in BEGINNER_POSITIONS:
+        return True
+
+    scores = onboarding.get("self_assessment") or {}
+    core_scores = [scores.get(track) for track in TOPIC_KEYS]
+    if any(score is None for score in core_scores):
+        return False
+    try:
+        return all(float(score) <= 1 for score in core_scores)
+    except (TypeError, ValueError):
+        return False
 
 
 def _completed_node_ids(progress_rows: Iterable[dict]) -> set[str]:
@@ -330,6 +352,21 @@ async def get_today_learning_node(
     )
     if not eligible_nodes:
         return None
+
+    if _is_first_time_beginner(onboarding, recent_completions):
+        entry_node = next(
+            (node for node in eligible_nodes if node.get("track") == ENTRY_TRACK_ID),
+            None,
+        )
+        if entry_node is not None:
+            entry_progress = progress_map.get(entry_node.get("id"), {})
+            return build_learning_recommendation(
+                entry_node,
+                progress=entry_progress,
+                support_recommendation=_build_support_recommendation(entry_node, progress_rows),
+                core_recommendation=_build_core_recommendation(progress_rows),
+                insight=_attach_insight(entry_node, entry_progress),
+            )
 
     candidate_nodes = generate_candidate_nodes(
         eligible_nodes, progress_map, subject_states, roadmap=roadmap,

@@ -119,8 +119,14 @@ def test_leaf_topic_nodes_are_unlockable_and_lookup_by_id_works():
     # carries prerequisites, and participates in unlock logic.
     roadmap = get_roadmap()
     for node_id, track in (
-        ("hld.foundations.cap", "hld"),
-        ("os.processes.basics", "operating_systems"),
+        # hld.foundations.cap is HLD's designated entry leaf and (as of the 2026
+        # curriculum sync) now carries subject-level prerequisites on the other
+        # 6 subjects, so hld.foundations.scalability is used here instead as the
+        # representative "no prerequisites" HLD leaf. Likewise os.processes.basics
+        # itself requires os.foundations.intro (OS's entry leaf, now gated behind
+        # the same subject-level chain), so os.memory.paging is used instead.
+        ("hld.foundations.scalability", "hld"),
+        ("os.memory.paging", "operating_systems"),
         ("behavioral.framework.star", "behavioral"),
     ):
         node = roadmap.get_learning_node(node_id)

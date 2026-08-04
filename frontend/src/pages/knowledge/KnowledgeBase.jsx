@@ -28,6 +28,20 @@ const TRACK_ICON = {
   projects: Hammer, behavioral: MessageCircle, resume: FileText,
 };
 
+const SUBJECT_ORDER = [
+  'programming_fundamentals', 'java', 'dsa', 'dbms', 'operating_systems',
+  'computer_networks', 'lld', 'hld', 'projects', 'resume', 'behavioral',
+];
+
+const subjectOrderIndex = new Map(SUBJECT_ORDER.map((id, index) => [id, index]));
+
+function orderSubjects(tracks) {
+  return [...tracks].sort((left, right) => (
+    (subjectOrderIndex.get(left.id) ?? Number.MAX_SAFE_INTEGER)
+    - (subjectOrderIndex.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+  ));
+}
+
 const BUCKET_DOT = {
   green: 'bg-emerald-400',
   yellow: 'bg-amber-400',
@@ -241,7 +255,7 @@ export default function KnowledgeBase() {
     if (!tree) return [];
     const needle = q.trim().toLowerCase();
     const hasFilters = filters.size > 0;
-    if (!needle && !hasFilters) return tree.tracks || [];
+    if (!needle && !hasFilters) return orderSubjects(tree.tracks || []);
     const autoExpand = new Set();
     const cloneMatches = (root) => {
       const stack = [{ node: root, phase: 'enter', parent: null }];
@@ -277,7 +291,7 @@ export default function KnowledgeBase() {
       }
       return rootBox.copy;
     };
-    return (tree.tracks || []).map(cloneMatches).filter(Boolean).map((t, _idx, all) => {
+    return orderSubjects((tree.tracks || []).map(cloneMatches).filter(Boolean)).map((t, _idx, all) => {
       autoExpand.forEach((_id) => { /* no-op — kept for future auto-expand hooks */ });
       return t;
     });

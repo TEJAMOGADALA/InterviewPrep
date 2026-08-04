@@ -43,7 +43,7 @@ export default function MissionInit() {
   const [position, setPosition] = useState('');
   const [hours, setHours] = useState([3]);
   const [skills, setSkills] = useState(
-    Object.fromEntries(SELF_ASSESSMENT_TOPICS.map((t) => [t.key, 5])),
+    Object.fromEntries(SELF_ASSESSMENT_TOPICS.map((t) => [t.key, 0])),
   );
   const [targetDate, setTargetDate] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -342,7 +342,7 @@ function StepSelfAssessment({ values, onChange }) {
       <StepHeader
         overline="Step 05"
         title="Self assessment"
-        subtitle="Rate your current confidence from 1 (starting out) to 10 (interview-ready)."
+        subtitle="Rate your current confidence from 0 (never studied) to 10 (interview-ready)."
       />
       <div className="mt-8 grid gap-5">
         {SELF_ASSESSMENT_TOPICS.map((t) => (
@@ -354,7 +354,7 @@ function StepSelfAssessment({ values, onChange }) {
             <Slider
               value={[values[t.key]]}
               onValueChange={(v) => onChange({ ...values, [t.key]: v[0] })}
-              min={1} max={10} step={1}
+              min={0} max={10} step={1}
               data-testid={`${ONBOARDING.skillSlider}-${t.key}`}
             />
           </div>

@@ -90,9 +90,16 @@ def test_seed_covers_every_roadmap_track_with_stage_aware_rows():
     assert dsa_seeded_ids == dsa_foundation_ids
     assert len(dsa_seeded_ids) < len(dsa_nodes)
 
-    # Tracks never covered by onboarding sliders still get a full neutral
-    # flat baseline (no stage progression to project a rating onto).
-    unrated_track = next(t for t in roadmap.track_ids() if t not in SELF_ASSESSMENT_LOW_DSA)
+    # Tracks never covered by onboarding sliders AND with no stage progression
+    # of their own (behavioral/projects/resume) still get a full neutral flat
+    # baseline. (Programming Fundamentals is also never asked about by the
+    # onboarding sliders, but — like dsa/java/etc. — it IS a genuinely staged
+    # track, so it legitimately gets stage-aware seeding here too, not a flat
+    # baseline; it is deliberately excluded from this "flat track" check.)
+    flat_tracks = {"behavioral", "projects", "resume"}
+    unrated_track = next(
+        t for t in roadmap.track_ids() if t not in SELF_ASSESSMENT_LOW_DSA and t in flat_tracks
+    )
     unrated_rows = rows_by_track.get(unrated_track, [])
     assert len(unrated_rows) == len(roadmap.get_track_learning_nodes(unrated_track))
     assert all(row["confidence"] == 5.0 and row["status"] == "in_progress" for row in unrated_rows)
