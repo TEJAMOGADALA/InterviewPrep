@@ -1,12 +1,33 @@
-"""Additive learning engine for recommending the next roadmap learning node.
+"""Adaptive learning engine — Phase 4 orchestrator + engines.
 
-This package is intentionally isolated and read-only. It reuses the existing
-roadmap engine and roadmap_node_progress collection but never writes to Mongo or
-modifies mission generation.
+Every layer is a single-responsibility module:
+
+    context.py         -- LearnerContext (bundle of learner signals)
+    eligibility.py     -- what is legally allowed today
+    candidates.py      -- narrow to a compact candidate set
+    priority_engine.py -- generalized scoring + continuity tie-break
+    ranking.py         -- canonical scoring formula (used by priority_engine)
+    composition.py     -- mission composition + validator + continuity
+    companion.py       -- support + core (companion) recommendations
+    cold_start.py      -- entry-track strategy for first-time learners
+    foresight.py       -- likely-next preview + readiness estimate
+    insight.py         -- explainable "why this?" payload
+    pacing.py          -- interview-deadline urgency
+    revision.py        -- spaced-repetition selection
+    roi.py             -- roadmap-graph ROI signal
+    stage_engine.py    -- subject-level learning-state derivation
+    unlock.py          -- prerequisite unlock rules
+    builder.py         -- recommendation DTO builder
+    planner.py         -- thin orchestrator (Phase 4)
 """
 
 from .builder import build_learning_recommendation
+from .context import LearnerContext, build_learner_context
 from .planner import get_today_learning_node
+from .priority_engine import (
+    PriorityScore, rank_by_priority, score_candidate,
+    score_candidates, top_candidate,
+)
 from .ranking import rank_learning_nodes
 from .revision import (
     get_due_revision_nodes,
@@ -17,7 +38,14 @@ from .unlock import get_unlocked_nodes, is_node_unlocked, next_unlockable_nodes
 
 __all__ = [
     "build_learning_recommendation",
+    "LearnerContext",
+    "build_learner_context",
     "get_today_learning_node",
+    "PriorityScore",
+    "rank_by_priority",
+    "score_candidate",
+    "score_candidates",
+    "top_candidate",
     "rank_learning_nodes",
     "get_due_revision_nodes",
     "get_highest_priority_revision",

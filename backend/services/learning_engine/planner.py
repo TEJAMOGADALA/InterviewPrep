@@ -1,221 +1,85 @@
-"""Orchestrator for the additive learning engine."""
+"""Adaptive Learning Planner — Phase 4 orchestrator.
+
+Purpose:
+    The planner is now a THIN ORCHESTRATOR. It sequences four
+    single-responsibility engines and stitches their outputs into a
+    recommendation dict. It does NOT contain scoring rules, learner
+    profile branching, or company-specific if/else chains — those live
+    in dedicated modules that are individually testable and
+    individually extensible.
+
+Pipeline (Phase 4 Step 1):
+
+    LearnerContext  <-- one bundle of learner-scoped signals
+        |
+        v
+    revision short-circuit  <-- if a spaced-repetition item is due,
+        |                       it wins; the engine below is not run.
+        v
+    Eligibility Engine  <-- what is legally allowed today
+        |                   (unlock + stage cap + skip hints)
+        v
+    Cold-Start Strategy  <-- for first-time learners, the roadmap's
+        |                    own entry track wins; no scoring override.
+        v
+    Candidate Generation  <-- narrow to a compact ~15-30 node set
+        |
+        v
+    Priority Engine  <-- generalized scoring + continuity tie-break
+        |
+        v
+    Companion (support + core) <-- metadata-driven fallback ladders
+        |
+        v
+    Insight Builder + Foresight <-- explainable "why this?" payload
+        |
+        v
+    build_learning_recommendation --> DTO returned to the caller
+
+Compatibility:
+    The public signature of `get_today_learning_node` is unchanged.
+    Every keyword argument has the same meaning and default it had
+    before Phase 4. All existing callers (`routes_missions`,
+    `mission_engine`, the test suite) keep working with no changes.
+"""
 from __future__ import annotations
 
-from typing import Iterable, List, Optional
+from typing import Iterable, Optional
 
-from models import TOPIC_KEYS
-from roadmap import get_roadmap
 from services.learning_engine.builder import build_learning_recommendation
 from services.learning_engine.candidates import generate_candidate_nodes
-from services.learning_engine.composition import (
-    CompositionPlan, ContinuityChain, chain_from_history,
-    continuity_score, plan_composition,
+from services.learning_engine.cold_start import cold_start_candidate
+from services.learning_engine.companion import (
+    core_recommendation, support_recommendation,
 )
+from services.learning_engine.context import LearnerContext, build_learner_context
 from services.learning_engine.eligibility import eligible_learning_nodes
 from services.learning_engine.foresight import (
     estimate_company_readiness_gain, likely_next_topics,
 )
 from services.learning_engine.insight import build_recommendation_insight
 from services.learning_engine.pacing import forecast_completion
-from services.learning_engine.ranking import rank_learning_nodes, score_learning_node
+from services.learning_engine.priority_engine import (
+    PriorityScore, score_candidate, top_candidate,
+)
 from services.learning_engine.revision import get_highest_priority_revision
-from services.learning_engine.roi import direct_dependents
 from services.learning_engine.stage_engine import compute_all_subject_states
-from services.learning_engine.unlock import get_unlocked_nodes, next_unlockable_nodes
 from services.progress_engine import load_user_progress_rows
-
-CORE_TRACKS = ["operating_systems", "dbms", "computer_networks"]
-COMPLETED_STATUSES = {"completed", "mastered", "revision_due"}
-BEGINNER_POSITIONS = {"student", "fresher", "0-1"}
+from roadmap import get_roadmap
 
 
-def _is_first_time_beginner(onboarding: Optional[dict], recent_completions: Optional[Iterable[dict]]) -> bool:
-    """Return whether a learner must begin from the universal entry track."""
-    if not onboarding or recent_completions:
-        return False
-
-    position = str(onboarding.get("current_position") or "").strip().lower()
-    if position in BEGINNER_POSITIONS:
-        return True
-
-    scores = onboarding.get("self_assessment") or {}
-    core_scores = [scores.get(track) for track in TOPIC_KEYS]
-    if any(score is None for score in core_scores):
-        return False
-    try:
-        return all(float(score) <= 1 for score in core_scores)
-    except (TypeError, ValueError):
-        return False
-
-
-def _completed_node_ids(progress_rows: Iterable[dict]) -> set[str]:
-    completed = set()
-    for row in progress_rows or []:
-        if not isinstance(row, dict):
-            continue
-        status = (row.get("status") or "").lower()
-        node_id = row.get("node_id")
-        if node_id and status in COMPLETED_STATUSES:
-            completed.add(node_id)
-    return completed
-
-
-def _choose_support_node(support_track: str, progress_rows: list) -> Optional[dict]:
-    completed_ids = _completed_node_ids(progress_rows)
-    unlocked = [
-        node for node in get_unlocked_nodes(progress_rows)
-        if node.get("track") == support_track and node.get("id") not in completed_ids
-    ]
-    if unlocked:
-        return unlocked[0]
-
-    for row in progress_rows:
-        if row.get("track") == support_track and row.get("node_id") and row.get("node_id") not in completed_ids:
-            roadmap_node = get_roadmap().get_learning_node(row["node_id"])
-            if roadmap_node is not None:
-                return roadmap_node
-
-    for node in get_roadmap().get_learning_nodes():
-        if node.get("track") == support_track and node.get("id") not in completed_ids:
-            return node
-
-    return None
-
-
-def _qualifying_candidate(node_id: Optional[str], completed_ids: set) -> Optional[dict]:
-    """Return the roadmap learning node for `node_id` if it's a real, unlocked,
-    not-yet-completed candidate — the shared eligibility check every support
-    tier below uses, so "reinforcement" never means a locked or finished node."""
-    if not node_id or node_id in completed_ids:
-        return None
-    roadmap = get_roadmap()
-    candidate = roadmap.get_learning_node(node_id)
-    if candidate is None:
-        return None
-    if not roadmap.is_unlocked(node_id, completed_ids):
-        return None
-    return candidate
-
-
-def _build_support_recommendation(
-    node: Optional[dict],
-    progress_rows: list,
-) -> Optional[dict]:
-    """
-    Build an adaptive secondary recommendation.
-
-    Priority (Foundation RC1.2 item 2), each tier only falling through to the
-    next when it finds no qualifying (unlocked, incomplete) candidate:
-      1. Same prerequisite chain — the immediate next step(s) that directly
-         depend on today's primary node (reuses roi.py's existing
-         reverse-prerequisite index; no second graph).
-      2. Same concept family — another learning node authored under the same
-         roadmap `category` (e.g. another binary-search variant).
-      3. `roadmap.related()` — the explicit cross-reference graph.
-      4. Cross-track — the learner's weakest non-primary track, only when
-         nothing topically connected exists.
-    """
-
-    if not node:
-        return None
-
-    primary_id = node.get("id")
-    primary_track = node.get("track")
-    primary_category = node.get("category")
-    roadmap = get_roadmap()
-    completed_ids = _completed_node_ids(progress_rows)
-
-    for dependent_id in direct_dependents(primary_id):
-        candidate = _qualifying_candidate(dependent_id, completed_ids)
-        if candidate:
-            return {"support_track": candidate.get("track", primary_track), "support_node": candidate.get("id")}
-
-    if primary_category:
-        for sibling in roadmap.get_learning_nodes():
-            if sibling.get("category") != primary_category or sibling.get("id") == primary_id:
-                continue
-            candidate = _qualifying_candidate(sibling.get("id"), completed_ids)
-            if candidate:
-                return {"support_track": candidate.get("track", primary_track), "support_node": candidate.get("id")}
-
-    for related in roadmap.related(primary_id):
-        candidate = _qualifying_candidate(related.get("id"), completed_ids)
-        if candidate:
-            return {"support_track": candidate.get("track", primary_track), "support_node": candidate.get("id")}
-
-    candidates = {}
-
-    for row in progress_rows:
-        track = row.get("track")
-        if not track or track == primary_track:
-            continue
-
-        status = row.get("status", "not_started")
-        if status in COMPLETED_STATUSES:
-            continue
-
-        confidence = float(row.get("confidence", 0))
-        weakness = float(row.get("weakness_score", 0))
-        score = weakness - (confidence * 10)
-
-        if (
-            track not in candidates
-            or score > candidates[track]["score"]
-        ):
-            candidates[track] = {"score": score}
-
-    if not candidates:
-        return None
-
-    candidate_tracks = [track for track in candidates if _choose_support_node(track, progress_rows) is not None]
-    if not candidate_tracks:
-        return None
-
-    support_track = max(
-        ((track, candidates[track]) for track in candidate_tracks),
-        key=lambda x: x[1]["score"],
-    )[0]
-    support_node = _choose_support_node(support_track, progress_rows)
-    recommendation = {"support_track": support_track}
-    if support_node is not None:
-        recommendation["support_node"] = support_node.get("id")
-    return recommendation
-
-
-def _build_core_recommendation(progress_rows: list) -> Optional[dict]:
-    """
-    Build a roadmap-backed core reading recommendation from OS/DBMS/Networks.
-    """
-    completed_ids = _completed_node_ids(progress_rows)
-    candidates = [
-        node for node in next_unlockable_nodes(progress_rows)
-        if node.get("track") in CORE_TRACKS
-        and node.get("id") not in completed_ids
-    ]
-    if not candidates:
-        candidates = [
-            node for node in get_unlocked_nodes(progress_rows)
-            if node.get("track") in CORE_TRACKS
-            and node.get("id") not in completed_ids
-        ]
-    if not candidates:
-        candidates = [
-            node for node in get_roadmap().get_learning_nodes()
-            if node.get("track") in CORE_TRACKS
-            and node.get("id") not in completed_ids
-        ]
-    if not candidates:
-        return None
-    return {"core_node": candidates[0].get("id")}
-
+# ---------------------------------------------------------------------------
+# Internal helpers — assembly, not decision-making
+# ---------------------------------------------------------------------------
 
 async def _load_progress_rows(user_id: str, db=None) -> list:
-    """Load the canonical roadmap progress rows used across PrepOS.
+    """Load canonical roadmap progress rows from `knowledge_nodes`.
 
-    ``roadmap_node_progress`` remains available for historical compatibility,
-    but it is not written by the mission, KB, or feedback workflows. Reading
-    it here made the planner observe a different learner state from every
-    other consumer. The planner now reads ``knowledge_nodes`` directly.
+    This is the same collection every other consumer of learner state
+    reads (mission engine, KB, feedback workflow). Reading from a
+    different source made the planner observe learner state that
+    disagreed with everything else the app displayed — a defect fixed
+    before Phase 4 and preserved here.
     """
     if db is None:
         return []
@@ -223,8 +87,69 @@ async def _load_progress_rows(user_id: str, db=None) -> list:
     return list(rows.values())
 
 
+def _attach_insight(
+    priority: PriorityScore,
+    context: LearnerContext,
+) -> dict:
+    """Assemble the explainable insight payload for one winning node.
+
+    Pure over already-computed signals — the priority breakdown, the
+    roadmap-graph foresight helpers, and the pacing forecast — so the
+    "why this?" explanation can never contradict what the priority
+    engine actually chose.
+    """
+    node = priority.node
+    forecast = forecast_completion(context.pacing_state, completed_dates=context.completed_dates)
+    likely = likely_next_topics(node.get("id"), completed_ids=context.completed_node_ids())
+
+    readiness_est = None
+    if context.onboarding and context.knowledge_rows:
+        readiness_est = estimate_company_readiness_gain(
+            node,
+            onboarding=context.onboarding,
+            knowledge_rows=context.knowledge_rows,
+            target_companies=context.target_companies or [],
+            difficulty=(node.get("difficulty") or "medium"),
+        )
+
+    return build_recommendation_insight(
+        node,
+        score_breakdown=priority.breakdown,
+        target_companies=context.target_companies,
+        pacing_state=context.pacing_state,
+        forecast=forecast,
+        continuity=priority.continuity,
+        likely_next_topics=likely,
+        readiness_delta_estimate=readiness_est,
+    )
+
+
+def _finalize(
+    node: dict,
+    progress: dict,
+    context: LearnerContext,
+    *,
+    insight: dict,
+) -> dict:
+    """Bundle the winning node with its companion recommendations and
+    the pre-built insight into the canonical recommendation DTO."""
+    return build_learning_recommendation(
+        node,
+        progress=progress,
+        support_recommendation=support_recommendation(node, context),
+        core_recommendation=core_recommendation(context),
+        insight=insight,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 async def get_today_learning_node(
-    user_id: str, *, db=None, pacing_state: Optional[dict] = None,
+    user_id: str, *,
+    db=None,
+    pacing_state: Optional[dict] = None,
     target_companies: Optional[Iterable[str]] = None,
     completed_dates: Optional[Iterable[str]] = None,
     recent_node_ids: Optional[Iterable[str]] = None,
@@ -237,198 +162,97 @@ async def get_today_learning_node(
 ) -> Optional[dict]:
     """Return the best learning recommendation for the user.
 
-    `pacing_state` (services/learning_engine/pacing.py) is optional and
-    defaults to None, which yields urgency=0.0 — identical ranking to before
-    this parameter existed. When provided, it only nudges ranking toward
-    higher interview-importance/frequency nodes; it never changes unlock or
-    revision-priority logic.
+    Signature is byte-identical to the pre-Phase-4 planner. All
+    keyword arguments remain optional; callers that pass only
+    ``user_id + db`` get identical output to before.
 
-    `target_companies` (Phase 4A) is the learner's onboarding company list.
-    Defaults to None (no companies), which yields company_score=0.0 for every
-    candidate — identical ranking to before this parameter existed. When
-    provided, it activates `ranking.py`'s existing (previously unused)
-    company-aware scoring and tie-breaking.
-
-    `completed_dates` (Phase 4B) is the learner's `knowledge_nodes.completion_date`
-    history. It never affects which node is picked — it is only forwarded to
-    `pacing.forecast_completion()` to attach a completion forecast onto the
-    returned recommendation's `insight`. Defaults to None (no history yet),
-    which yields a zero-pace forecast.
-
-    `recent_node_ids` (Foundation RC1.2 item 6) is the set of node ids the
-    learner was recommended in their last few missions. Defaults to None (no
-    history / no-op), which applies zero recency penalty in `ranking.py` —
-    identical ranking to before this parameter existed.
-
-    RC1.3.2A additions (all optional; every existing caller keeps identical
-    output when not passing them):
-
-    * ``onboarding`` — enables the per-company readiness estimate AND (RC1.3.3)
-      the foundation-first bias for beginners.
-    * ``knowledge_rows`` — enables the per-company readiness estimate.
-    * ``recent_completions`` — enables learning continuity signal.
-    * ``skip_node_ids`` — used by the orchestrator on a retry attempt
-      after the validator flagged the first pick.
-
-    RC1.3.3 additions (all optional; existing callers keep identical
-    output when not passing them):
-
-    * ``skipped_node_ids`` — node ids the learner actively SKIPPED in
-      recent missions. Passed straight through to ranking so those
-      nodes get a deferral penalty (never a permanent ban).
-    * ``recent_track_ids`` — the ordered list of tracks from the
-      learner's recent missions (newest last). Feeds the same-track
-      fatigue penalty; ignored for beginner experience bands.
+    * ``pacing_state`` (services/learning_engine/pacing.py) — urgency /
+      capacity signal. Defaults to no-op.
+    * ``target_companies`` — list of target company ids for
+      company-weighted scoring.
+    * ``completed_dates`` — full completion-date history used only for
+      the forecast attached to the insight; never affects picks.
+    * ``recent_node_ids`` — node ids offered in recent missions; feeds
+      the recency penalty in ranking.
+    * ``onboarding`` + ``knowledge_rows`` — enable per-company
+      readiness estimate and the foundation-first bias.
+    * ``recent_completions`` — enables continuity tie-break.
+    * ``skip_node_ids`` — RETRY hint from ``validate_mission`` after
+      the validator flags a first attempt; those nodes are excluded
+      from eligibility.
+    * ``skipped_node_ids`` — nodes the learner SKIPPED in recent
+      missions (deferral penalty in ranking).
+    * ``recent_track_ids`` — recent-mission track order (fatigue
+      penalty for mid+ learners).
     """
     progress_rows = await _load_progress_rows(user_id, db)
-    pacing_state = pacing_state or {}
-    urgency = float(pacing_state.get("urgency", 0.0))
-    progress_map = {row.get("node_id"): row for row in progress_rows if row.get("node_id")}
-    skip = set(skip_node_ids or ())
 
-    # RC1.3.3 · learner meta signals — cheap, always safe to compute.
-    position = (onboarding or {}).get("current_position") if onboarding else None
-    onboarding_scores = (onboarding or {}).get("self_assessment") if onboarding else None
+    context = build_learner_context(
+        onboarding=onboarding,
+        progress_rows=progress_rows,
+        pacing_state=pacing_state,
+        target_companies=target_companies,
+        recent_completions=recent_completions,
+        recent_node_ids=recent_node_ids,
+        recent_track_ids=recent_track_ids,
+        skipped_node_ids=skipped_node_ids,
+        completed_dates=completed_dates,
+        knowledge_rows=knowledge_rows,
+        skip_node_ids=skip_node_ids,
+    )
 
-    # ---- Continuity chain from recent history ---------------------------
-    chain = chain_from_history(recent_completions or [])
-
-    def _attach_insight(node: dict, progress: dict) -> dict:
-        breakdown = score_learning_node(
-            node, progress, target_companies=target_companies, urgency=urgency,
-            progress_map=progress_map, recent_node_ids=recent_node_ids,
-            skipped_node_ids=skipped_node_ids,
-            recent_track_ids=recent_track_ids,
-            position=position,
-            onboarding_scores=onboarding_scores,
-        )
-        forecast = forecast_completion(pacing_state, completed_dates=completed_dates)
-        cont = continuity_score(node, chain)
-        # LIKELY next — filter out anything the learner already
-        # completed to keep the preview honest.
-        completed_ids = _completed_node_ids(progress_rows)
-        likely = likely_next_topics(node.get("id"), completed_ids=completed_ids)
-        # Readiness ESTIMATE — only when we have the inputs to compute it
-        # honestly. Never fabricates.
-        readiness_est = None
-        if onboarding is not None and knowledge_rows is not None:
-            readiness_est = estimate_company_readiness_gain(
-                node,
-                onboarding=onboarding,
-                knowledge_rows=knowledge_rows,
-                target_companies=target_companies or [],
-                difficulty=(node.get("difficulty") or "medium"),
-            )
-        return build_recommendation_insight(
-            node, score_breakdown=breakdown, target_companies=target_companies,
-            pacing_state=pacing_state, forecast=forecast,
-            continuity=cont, likely_next_topics=likely,
-            readiness_delta_estimate=readiness_est,
-        )
-
+    # ---- 1. Revision short-circuit ---------------------------------------
+    # Spaced-repetition items ALWAYS win over new content. This gate is a
+    # single-line pipeline stage — never a branching decision the planner
+    # itself owns beyond "did the engine surface one?".
     revision = get_highest_priority_revision(user_id, progress_rows=progress_rows)
-    if revision is not None and revision.get("node_id") not in skip:
+    if revision is not None and revision.get("node_id") not in context.skip_node_ids:
         roadmap = get_roadmap()
         node = roadmap.get(revision.get("node_id"))
         if node is not None:
-            return build_learning_recommendation(
-                node,
-                progress=revision,
-                support_recommendation=_build_support_recommendation(node, progress_rows),
-                core_recommendation=_build_core_recommendation(progress_rows),
-                insight=_attach_insight(node, revision),
-            )
+            priority = score_candidate(node, context)
+            # For a revision pick, priority is informational (we didn't
+            # rank against anything else) — but the same insight
+            # pipeline runs so the explanation object is consistent.
+            insight = _attach_insight(priority, context)
+            return _finalize(node, revision, context, insight=insight)
 
-    # RC1.3.6A · Phase 4-6 — Roadmap -> Prerequisite Graph -> Learning State
-    # -> Eligibility Engine -> Candidate Set -> Ranking Engine. The ranking
-    # formula itself (services/learning_engine/ranking.py) is unchanged; it
-    # now simply never has to inspect the hundreds of merely-*unlocked* nodes
-    # that used to be handed to it directly.
+    # ---- 2. Eligibility engine ------------------------------------------
     roadmap = get_roadmap()
-    subject_states = compute_all_subject_states(roadmap, progress_map)
-    eligible_nodes = eligible_learning_nodes(
-        progress_map, subject_states, urgency=urgency, skip_node_ids=skip,
+    subject_states = compute_all_subject_states(roadmap, context.progress_map)
+    eligible = eligible_learning_nodes(
+        context.progress_map, subject_states,
+        urgency=context.urgency, skip_node_ids=context.skip_node_ids,
     )
-    if not eligible_nodes:
+    if not eligible:
         return None
 
-    if _is_first_time_beginner(onboarding, recent_completions):
-        root_subjects = roadmap.root_subject_ids()
-        entry_track = root_subjects[0] if root_subjects else None
-        entry_node = next(
-            (node for node in eligible_nodes if node.get("track") == entry_track),
-            None,
-        )
-        if entry_node is not None:
-            entry_progress = progress_map.get(entry_node.get("id"), {})
-            return build_learning_recommendation(
-                entry_node,
-                progress=entry_progress,
-                support_recommendation=_build_support_recommendation(entry_node, progress_rows),
-                core_recommendation=_build_core_recommendation(progress_rows),
-                insight=_attach_insight(entry_node, entry_progress),
-            )
+    # ---- 3. Cold-start strategy -----------------------------------------
+    # First-session learners land on the roadmap-declared entry track.
+    # This is a signal-driven strategy; it fires when the DATA matches
+    # — never based on a hardcoded learner profile.
+    entry_node = cold_start_candidate(eligible, context)
+    if entry_node is not None:
+        priority = score_candidate(entry_node, context)
+        insight = _attach_insight(priority, context)
+        entry_progress = context.progress_map.get(entry_node.get("id"), {})
+        return _finalize(entry_node, entry_progress, context, insight=insight)
 
-    candidate_nodes = generate_candidate_nodes(
-        eligible_nodes, progress_map, subject_states, roadmap=roadmap,
-        target_companies=target_companies, urgency=urgency,
-        recent_track_ids=recent_track_ids,
+    # ---- 4. Candidate generation ----------------------------------------
+    candidates = generate_candidate_nodes(
+        eligible, context.progress_map, subject_states, roadmap=roadmap,
+        target_companies=context.target_companies, urgency=context.urgency,
+        recent_track_ids=context.recent_track_ids,
     )
-    if not candidate_nodes:
+    if not candidates:
         return None
 
-    ranked_nodes = rank_learning_nodes(
-        candidate_nodes, progress_map, target_companies=target_companies, urgency=urgency,
-        recent_node_ids=recent_node_ids,
-        skipped_node_ids=skipped_node_ids,
-        recent_track_ids=recent_track_ids,
-        position=position,
-        onboarding_scores=onboarding_scores,
-    )
-    if not ranked_nodes:
+    # ---- 5. Priority engine + continuity tie-break ----------------------
+    top = top_candidate(candidates, context)
+    if top is None:
         return None
 
-    # Continuity tie-break: when the top two candidates are within 5% of
-    # each other on the scalar score, prefer the one that keeps the
-    # learner on the same topic/module as their last completion. Never
-    # applied when the top candidate is already a strong winner.
-    top_node = ranked_nodes[0]
-    if len(ranked_nodes) > 1 and chain.last_track_id:
-        top_breakdown = score_learning_node(
-            top_node, progress_map.get(top_node.get("id"), {}),
-            target_companies=target_companies, urgency=urgency,
-            progress_map=progress_map, recent_node_ids=recent_node_ids,
-            skipped_node_ids=skipped_node_ids,
-            recent_track_ids=recent_track_ids,
-            position=position,
-            onboarding_scores=onboarding_scores,
-        )
-        top_score = top_breakdown.get("total_score", 0.0) or 0.0
-        for candidate in ranked_nodes[1:4]:
-            cb = score_learning_node(
-                candidate, progress_map.get(candidate.get("id"), {}),
-                target_companies=target_companies, urgency=urgency,
-                progress_map=progress_map, recent_node_ids=recent_node_ids,
-                skipped_node_ids=skipped_node_ids,
-                recent_track_ids=recent_track_ids,
-                position=position,
-                onboarding_scores=onboarding_scores,
-            )
-            cand_score = cb.get("total_score", 0.0) or 0.0
-            if top_score <= 0 or cand_score / top_score < 0.95:
-                continue
-            top_cont = continuity_score(top_node, chain)
-            cand_cont = continuity_score(candidate, chain)
-            if cand_cont.get("distance", 4) < top_cont.get("distance", 4):
-                top_node = candidate
-                break
-
-    top_progress = progress_map.get(top_node.get("id"), {})
-    return build_learning_recommendation(
-        top_node,
-        progress=top_progress,
-        support_recommendation=_build_support_recommendation(top_node, progress_rows),
-        core_recommendation=_build_core_recommendation(progress_rows),
-        insight=_attach_insight(top_node, top_progress),
-    )
-
+    # ---- 6. Assemble the recommendation ---------------------------------
+    top_progress = context.progress_map.get(top.node.get("id"), {})
+    insight = _attach_insight(top, context)
+    return _finalize(top.node, top_progress, context, insight=insight)

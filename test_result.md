@@ -102,9 +102,146 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "PrepOS RC1.3.4 – Knowledge Experience & Learning Workspace. Extend the existing Knowledge Base into a full learning workspace with seven lenses (All Topics, Continue Learning, Bookmarks, Favorites, Weak Topics, Revision Due, Recently Viewed). All lenses derive from data already exposed by `/api/roadmap`, `/api/roadmap/summary` and `/api/revisions/queue` — no new endpoint, no new Mongo collection, no schema change. Bookmark/Favorite toggles reuse the existing RC1.3.2B mutation hooks (`useToggleBookmark`, `useToggleFavorite`) so a single toggle updates deep node, tree, workspace list, and Mission Control together. Recently-viewed tracking is a user-scoped localStorage list (`prepos:recently-viewed:v1:<userId>`) recorded when DeepTopicPage loads a node — cross-user isolation matches RC1.3.3 React Query key scheme. `useProgressTree` is now a thin backwards-compat shim over `useRoadmapTree`, removing a hidden global-cache leak. Stat strip reuses `useRoadmapSummary` — no extra API call. Search + filters remain client-side and stack on top of the active view. Weak-topic filter reuses the same signals the adaptive planner already uses (confidence, weakness_score, revision_due) — no new algorithm."
+user_problem_statement: "PrepOS Phase 4 · Step 1 — Adaptive Planning Foundation. Refactor the planner from a decision-maker into a pure orchestrator. Separate candidate generation, priority scoring, and mission composition into single-responsibility engines. Introduce a generalized Priority Engine that scores every eligible roadmap candidate from curriculum metadata + learner context. Remove hardcoded learner profiles, company-specific if/else chains, and scenario-specific branching in favor of metadata-driven, extensible signals. Preserve all existing APIs, roadmap, onboarding, dashboard, mission, and Coding Arena integrations. Keep runtime deterministic. Earlier iterations (RC1.3.4 – Knowledge Workspace, etc.) remain unchanged and are recorded below for continuity."
+
+original_prd: "PrepOS RC1.3.4 – Knowledge Experience & Learning Workspace. Extend the existing Knowledge Base into a full learning workspace with seven lenses (All Topics, Continue Learning, Bookmarks, Favorites, Weak Topics, Revision Due, Recently Viewed). All lenses derive from data already exposed by `/api/roadmap`, `/api/roadmap/summary` and `/api/revisions/queue` — no new endpoint, no new Mongo collection, no schema change. Bookmark/Favorite toggles reuse the existing RC1.3.2B mutation hooks (`useToggleBookmark`, `useToggleFavorite`) so a single toggle updates deep node, tree, workspace list, and Mission Control together. Recently-viewed tracking is a user-scoped localStorage list (`prepos:recently-viewed:v1:<userId>`) recorded when DeepTopicPage loads a node — cross-user isolation matches RC1.3.3 React Query key scheme. `useProgressTree` is now a thin backwards-compat shim over `useRoadmapTree`, removing a hidden global-cache leak. Stat strip reuses `useRoadmapSummary` — no extra API call. Search + filters remain client-side and stack on top of the active view. Weak-topic filter reuses the same signals the adaptive planner already uses (confidence, weakness_score, revision_due) — no new algorithm."
 
 backend:
+  - task: "Phase 4 · Step 1 — Adaptive Planning Foundation (planner orchestrator + Priority Engine)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/services/learning_engine/planner.py, /app/backend/services/learning_engine/priority_engine.py, /app/backend/services/learning_engine/context.py, /app/backend/services/learning_engine/companion.py, /app/backend/services/learning_engine/cold_start.py, /app/backend/services/learning_engine/__init__.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Refactored planner.py from a 435-line decision maker into a
+          ~200-line orchestrator. Extracted four single-responsibility
+          engines so new signals / companies / tracks are pluggable
+          without any planner change.
+
+          NEW MODULES
+            • services/learning_engine/context.py
+              LearnerContext dataclass: bundles onboarding, progress,
+              pacing, recent-history, target companies and skip hints
+              into ONE object. Every scoring / candidate / insight
+              call now takes the context — no more 10-argument drill.
+              Includes derived properties (urgency, position,
+              onboarding_scores, completed_node_ids, continuity_chain,
+              has_declared_progress).
+            • services/learning_engine/priority_engine.py
+              Generalized scoring layer. Wraps
+              ranking.score_learning_node (the canonical formula is
+              unchanged) and exposes PriorityScore /
+              score_candidate() / score_candidates() /
+              top_candidate() with continuity tie-break as a
+              first-class step. Deterministic — ties broken by
+              (score desc, company_score desc, node_id asc).
+              New signals go into LearnerContext + ranking.py,
+              never here.
+            • services/learning_engine/companion.py
+              Extracted _build_support_recommendation and
+              _build_core_recommendation out of the planner.
+              Support recommendation is now an ordered list of
+              metadata-driven strategies: prerequisite chain →
+              same category → related edge → cross-track weakness.
+              Core reading is a ladder of three metadata-driven
+              tiers. Adding a new tier is a one-line append; no
+              other file needs to change.
+            • services/learning_engine/cold_start.py
+              Isolated the "first-time learner → roadmap's entry
+              track" adaptive strategy. Signal-driven (no
+              hardcoded learner profile): fires when the learner
+              has NO recorded progress AND EITHER declares an
+              inexperienced onboarding position OR declares
+              near-zero self-assessment across every baseline
+              track. Entry track comes from roadmap's own
+              root_subject_ids() — pluggable via curriculum
+              metadata, not hardcoded.
+
+          MODIFIED
+            • services/learning_engine/planner.py
+              Now a thin orchestrator. Pipeline:
+                LearnerContext → revision short-circuit →
+                Eligibility Engine → Cold-Start Strategy →
+                Candidate Generation → Priority Engine →
+                Companion (support + core) → Insight/Foresight →
+                build_learning_recommendation
+              Public signature of get_today_learning_node is
+              byte-identical to pre-Phase-4. All 15+ existing
+              callers keep working with zero changes.
+            • services/learning_engine/__init__.py
+              Exports new modules (LearnerContext, PriorityScore,
+              score_candidate/candidates/top_candidate,
+              rank_by_priority, build_learner_context). All
+              pre-existing exports preserved.
+
+          NOT MODIFIED (compatibility contract)
+            • ranking.py, candidates.py, eligibility.py,
+              composition.py, foresight.py, insight.py, pacing.py,
+              roi.py, unlock.py, revision.py, stage_engine.py,
+              builder.py — untouched.
+            • mission_engine.py, routes_missions.py — untouched.
+            • All curriculum JSON — untouched.
+            • All roadmap, onboarding, dashboard, mission,
+              Coding Arena API contracts — unchanged.
+
+          PRIORITY SCORING ARCHITECTURE
+            The scoring model derives from curriculum metadata +
+            learner context, never from hardcoded profiles:
+              - curriculum prerequisites → eligibility/unlock
+              - learner self-assessment → onboarding.self_assessment
+              - current mastery / confidence → knowledge_nodes
+              - experience → onboarding.current_position (opaque tag,
+                data-driven fatigue and foundation rules)
+              - interview timeline → pacing_state.urgency
+              - study hours → pacing_state.daily_capacity_minutes
+              - target company → roadmap.company_importance()
+                (walks track → module → topic → node)
+              - revision needs → knowledge_nodes.next_revision
+              - previous missions → recent_node_ids /
+                recent_track_ids / skipped_node_ids
+              - topic difficulty → node.difficulty
+              - continuity → continuity_score against recent
+                completions (tie-break, never a hard veto)
+
+          REGRESSION RISKS
+            - LOW. All 52 learning-engine tests pass, 88 broader
+              tests pass. Two remaining failures in the repo
+              (test_interview_pacing::…practice_count and
+              test_onboarding_knowledge_seed::…every_track) were
+              already failing on the pre-Phase-4 main branch and
+              are unrelated to this refactor (confirmed via
+              git stash reproducer).
+            - The public signature and return shape of
+              get_today_learning_node is preserved exactly.
+            - Insight payload keys (composition, continuity,
+              likely_next_topics, readiness_delta_estimate,
+              validation) all still surface via the same
+              build_recommendation_insight call.
+            - Support / core recommendation output shape is
+              byte-identical ({support_track, support_node,
+              core_node}).
+            - Cold-start behaviour still lands genuine beginners
+              on programming_fundamentals (test verified).
+
+          VALIDATION
+            pytest -q on the learning-engine surface:
+              tests/test_learning_engine.py        14 passed
+              tests/test_recommendation_insight.py  8 passed
+              tests/test_company_aware_ranking.py   5 passed
+              tests/test_candidate_generation.py    4 passed
+              tests/test_eligibility_engine.py      5 passed
+              tests/test_learning_stage_engine.py   6 passed
+              tests/test_canonical_progress.py      7 passed
+              tests/test_streak_engine.py           …
+              (52 total in that subset, all passing)
+            Broader relevant set: 88 passed, 0 regressions.
+            mcp_lint_python on services/learning_engine/: clean.
+
   - task: "RC1.3.4 · Knowledge workspace — backend surface unchanged"
     implemented: true
     working: "NA"
@@ -689,21 +826,86 @@ metadata:
 
 test_plan:
   current_focus:
-    - "RC1.3.2A · Composition planner (composition.py)"
-    - "RC1.3.2A · Foresight planner (foresight.py)"
-    - "RC1.3.2A · Planner orchestrator (planner.py continuity + regeneration)"
-    - "RC1.3.2A · Mission builder + regeneration on validator flag"
-    - "RC1.3.2A · Explainable insight (insight.py additive keys)"
-    - "Mission completion immutability — toggle_task rejects on completed mission"
-    - "Mission completion idempotency — complete_mission uses compare-and-swap"
-    - "Task-level knowledge updates on task completion"
-    - "Company importance walks Track → Module → Topic → LearningNode"
-    - "Weekly Activity endpoint (RC1.3)"
+    - "Phase 4 · Step 1 — Adaptive Planning Foundation (planner orchestrator + Priority Engine)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
 
 agent_communication:
+  - agent: "main"
+    message: |
+      Phase 4 · Step 1 complete — planner is now a thin orchestrator.
+
+      FILES MODIFIED
+        - /app/backend/services/learning_engine/planner.py (rewritten, 435 → ~200 lines)
+        - /app/backend/services/learning_engine/__init__.py (exports new modules)
+
+      NEW MODULES
+        - /app/backend/services/learning_engine/context.py         (LearnerContext bundle)
+        - /app/backend/services/learning_engine/priority_engine.py (generalized scoring API)
+        - /app/backend/services/learning_engine/companion.py       (support + core recos)
+        - /app/backend/services/learning_engine/cold_start.py      (first-session strategy)
+
+      WHY EACH CHANGE
+        - context.py: eliminates the 10-argument threading that made every
+          new signal a multi-file change. New signals now go into ONE
+          dataclass; the planner code path never grows.
+        - priority_engine.py: makes scoring a first-class, reusable engine
+          (PriorityScore / score_candidates / top_candidate) with continuity
+          tie-break as a first-class step. Companion recommendations can
+          reuse the same engine over their own candidate pools.
+        - companion.py: extracts support/core recommendation logic from the
+          planner. Each fallback tier is now an explicit metadata-driven
+          strategy; adding a new tier is one line.
+        - cold_start.py: isolates the "first-session → entry track" adaptive
+          strategy. Signal-driven (data, not learner id), roadmap-metadata-
+          driven (root_subject_ids), and overridable via kwargs.
+        - planner.py: reduced to a straight pipeline. No scoring rules, no
+          scenario branching, no hardcoded learner profiles.
+
+      PRIORITY SCORING ARCHITECTURE
+        curriculum metadata + learner context → generalized scoring:
+          prerequisites, self-assessment, mastery, confidence, experience,
+          interview timeline, study hours, target company, revision needs,
+          previous missions (recency + skip + fatigue), topic difficulty,
+          continuity. Every signal is a bonus/penalty term inside
+          ranking.score_learning_node (unchanged). New signals go there +
+          into LearnerContext — the planner never grows.
+
+      REGRESSION RISKS
+        - Public signature of get_today_learning_node is byte-identical.
+        - Recommendation output shape is byte-identical (all pre-Phase-4
+          keys still present).
+        - Insight payload unchanged (composition / continuity /
+          likely_next_topics / readiness_delta_estimate / validation).
+        - Ranking formula (ranking.score_learning_node) is untouched — so
+          identical inputs produce identical scores.
+        - Cold-start test (test_first_time_beginner_starts_from_programming_fundamentals)
+          still passes: strategy re-implemented on top of roadmap metadata,
+          not a hardcoded position enum.
+        - Support/core test (test_planner_builds_support_and_core_recommendations_from_roadmap)
+          still passes: 4-tier ladder preserved as an ordered strategy list.
+
+      VALIDATION PERFORMED
+        - mcp_lint_python on services/learning_engine/: clean.
+        - Python import smoke: planner + priority_engine + companion +
+          cold_start + context all import correctly.
+        - Broad pytest run (relevant suites): 88 passed, 0 regressions.
+          Two pre-existing failures (test_interview_pacing::…practice_count
+          and test_onboarding_knowledge_seed::…every_track) were reproduced
+          on the pre-Phase-4 main branch via `git stash` — unrelated to
+          this refactor.
+        - Backend service cannot start in this workspace because /app/backend/.env
+          is intentionally absent (documented in earlier RC1.3.1 review) —
+          static validation only, matching the workflow used for the
+          preceding phases.
+
+      NEXT PHASES
+        Step 2 will build on this foundation to add new adaptive signals
+        (e.g. learner momentum, session-quality feedback) by extending
+        LearnerContext + adding terms to ranking.py — no planner changes
+        expected.
+
   - agent: "main"
     message: "RC1.3.1 · Foundation Hardening delivered. Please verify: (A) once POST /missions/{id}/complete succeeds, subsequent POST /missions/{id}/tasks/{tid}/toggle returns 409; (B) two rapid POST /missions/{id}/complete calls result in exactly ONE mission_completed event in activity_events and ONE streak bump (streak.current_streak does not double); (C) a POST /missions/{id}/tasks/{tid}/toggle on an in-progress mission immediately writes to knowledge_nodes (mastery_percentage increases + status=completed + next_revision set on the target node_id); (D) roadmap.company_importance() honours node/topic/module overrides — pick a node whose topic or module sets a company_importance value different from its track and confirm the returned value is the deepest override, not the track fallback; (E) GET /api/dashboard/weekly-activity returns the documented shape. Test credentials: admin@prepos.io / Admin@123 (already in /app/memory/test_credentials.md). Onboarding may need to be completed once for the admin before mission endpoints work — the tester can call POST /api/onboarding with any valid payload."
   - agent: "main"
