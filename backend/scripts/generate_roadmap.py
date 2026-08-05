@@ -3188,6 +3188,102 @@ def _infer_learning_stage(track_id: str, module_id: str) -> str:
     return _LEARNING_STAGE_TRACK_FALLBACK.get(track_id, "core")
 
 
+# ---------------------------------------------------------------------------
+# Curriculum Sync Phase 2 — metadata-only prerequisite/unlock/level/source
+# annotations (docs/curriculum/governance/01-curriculum-synchronization-contract.md).
+# None of this is read by roadmap.py's unlock/ranking/ROI engines (which only
+# ever consult `prerequisites`/`learning_stage`) — it is purely additive,
+# queryable curriculum metadata layered on top of the existing, already-
+# enforced graph. A later phase may choose to enforce it at runtime.
+# ---------------------------------------------------------------------------
+
+# Mirrors docs/curriculum/governance/00-curriculum-principles.md's canonical
+# 5-level framework (Foundation/Basic/Intermediate/Advanced/Expert), derived
+# from the already-existing `learning_stage` enum — never a second source of
+# truth for pedagogical position, just a relabeling into the constitution's
+# own vocabulary.
+_CURRICULUM_LEVEL_LABELS: dict[str, str] = {
+    "foundation": "Foundation",
+    "core": "Basic",
+    "intermediate": "Intermediate",
+    "advanced": "Advanced",
+    "interview": "Expert",
+    "company_specific": "Expert",
+}
+
+
+def _curriculum_level_label(stage: str) -> str:
+    return _CURRICULUM_LEVEL_LABELS.get(stage, "Intermediate")
+
+
+# Canonical subject dependency DAG (Curriculum Sync Phase 2 enrichment):
+# Programming Fundamentals is the sole root. Java is the common gateway
+# subject. DSA/DBMS/Operating Systems/Computer Networks all branch directly
+# off Java (no artificial ordering between them). LLD depends on Java, DSA
+# and Operating Systems. HLD depends on Java, DBMS, Operating Systems,
+# Computer Networks and LLD. This replaces the earlier, too-restrictive
+# linear chain with the true multi-parent curriculum dependency graph.
+# Projects/Behavioral/Resume are intentionally absent \u2014 independent
+# career-readiness tracks kept outside the academic prerequisite graph.
+_SUBJECT_PREREQUISITES: dict[str, list[str]] = {
+    "programming_fundamentals": [],
+    "java": ["programming_fundamentals"],
+    "dsa": ["java"],
+    "dbms": ["java"],
+    "operating_systems": ["java"],
+    "computer_networks": ["java"],
+    "lld": ["java", "dsa", "operating_systems"],
+    "hld": ["java", "dbms", "operating_systems", "computer_networks", "lld"],
+}
+
+# Subjects that must remain isolated from the academic prerequisite graph
+# (independent career-readiness tracks, per curriculum sync request item 3).
+_ISOLATED_SUBJECTS: frozenset[str] = frozenset({"projects", "behavioral", "resume"})
+
+# Future-ready, roadmap-wide programming-language metadata (item 4). Advisory
+# only \u2014 not read by onboarding or any runtime engine. Structured as a list
+# so additional languages can be appended later without changing the
+# roadmap's structure. Java is the only supported language today.
+_LANGUAGE_SUPPORT_METADATA: dict = {
+    "primary_language_supported": "java",
+    "supported_languages": ["java"],
+    "language_family": {"java": "jvm_object_oriented"},
+}
+
+# Canonical curriculum markdown each subject track was generated from —
+# traceability only, not a live parser (docs/curriculum/subjects/0N-*.md).
+_SUBJECT_SOURCE_ANCHOR: dict[str, str] = {
+    "programming_fundamentals": "docs/curriculum/subjects/01-programming-fundamentals.md",
+    "java": "docs/curriculum/subjects/02-java.md",
+    "dsa": "docs/curriculum/subjects/03-dsa.md",
+    "dbms": "docs/curriculum/subjects/04-dbms.md",
+    "operating_systems": "docs/curriculum/subjects/05-operating-systems.md",
+    "computer_networks": "docs/curriculum/subjects/06-computer-networks.md",
+    "lld": "docs/curriculum/subjects/07-lld.md",
+    "hld": "docs/curriculum/subjects/08-hld.md",
+}
+
+
+def _collect_production_application(node: dict) -> list[str]:
+    """Companies whose authored `company_importance` for a descendant leaf is
+    genuinely differentiated from the flat default — never fabricated, just
+    surfaces already-authored per-node company signal at module granularity
+    as "which real companies' production interviews this content is
+    demonstrably weighted toward"."""
+    companies: set[str] = set()
+
+    def visit(n: dict) -> None:
+        for company, weight in (n.get("company_importance") or {}).items():
+            if weight != _DEFAULT_INTERVIEW_FREQUENCY:
+                companies.add(company)
+        for key in ("modules", "topics", "subtopics", "learning_nodes"):
+            for c in n.get(key, []) or []:
+                visit(c)
+
+    visit(node)
+    return sorted(companies)
+
+
 def _stamp_defaults(n: dict, *, track_id: str, module_id: str, category_id: str, level: str, order: int) -> None:
     """Attach metadata every node needs. Never overwrites explicit values."""
     n.setdefault("description", "")
@@ -3211,6 +3307,7 @@ def _stamp_defaults(n: dict, *, track_id: str, module_id: str, category_id: str,
         n.setdefault("learning_stage", _infer_learning_stage(track_id, module_id))
         n.setdefault("interview_importance", _default_interview_importance(n))
         n.setdefault("learning_objectives", _default_learning_objectives(n, n.get("label", n["id"])))
+        n.setdefault("curriculum_level", _curriculum_level_label(n["learning_stage"]))
 
 
 
@@ -3493,6 +3590,189 @@ def _auto_link_related(tracks: list[dict], all_nodes: list[dict]) -> None:
         n["related"] = list(n.get("related") or []) + ordered
 
 
+def _annotate_curriculum_sync_metadata(tracks: list[dict]) -> None:
+    """Curriculum Sync Phase 2 \u2014 stamp subject/module/topic prerequisite
+    DAG edges, unlock chains, advisory next-subject recommendations,
+    curriculum level, production application and source anchors. Purely
+    metadata: nothing here is read by roadmap.py's unlock/ranking/ROI
+    engines, so runtime gating behavior is unchanged.
+
+    Subject-level dependency is the hardcoded canonical DAG in
+    `_SUBJECT_PREREQUISITES` (subjects may have multiple parents, e.g. LLD
+    and HLD); module/topic-level chains are derived purely from each
+    track's own already-authored module/topic order plus that subject DAG
+    \u2014 deterministic, nothing invented.
+    """
+    by_track = {t["id"]: t for t in tracks}
+    module_by_id = {
+        m["id"]: m for t in tracks for m in (t.get("modules") or [])
+    }
+
+    subject_unlocks: dict[str, list[str]] = {tid: [] for tid in by_track}
+    for tid, prereqs in _SUBJECT_PREREQUISITES.items():
+        for p in prereqs:
+            subject_unlocks.setdefault(p, []).append(tid)
+
+    for track in tracks:
+        tid = track["id"]
+        track["subject_prerequisites"] = list(_SUBJECT_PREREQUISITES.get(tid, []))
+        track["subject_unlocks"] = list(subject_unlocks.get(tid, []))
+        # Advisory-only navigation hint (item 2). Mirrors subject_unlocks
+        # today but is a deliberately separate field name so a later phase
+        # can diverge "what this unlocks" from "what we recommend next"
+        # without touching the enforced/derived unlock chain.
+        track["recommended_next_subjects"] = list(subject_unlocks.get(tid, []))
+        anchor = _SUBJECT_SOURCE_ANCHOR.get(tid)
+        track["source_anchor"] = anchor
+
+        modules = track.get("modules") or []
+        for m_idx, module in enumerate(modules):
+            module_prereqs: list[str] = []
+            if m_idx > 0:
+                module_prereqs.append(modules[m_idx - 1]["id"])
+            else:
+                # First module of a subject: link to the LAST module of
+                # EVERY prerequisite subject (a DAG node may have several
+                # parents, e.g. LLD/HLD), not just a single predecessor.
+                for prev_track_id in _SUBJECT_PREREQUISITES.get(tid) or []:
+                    prev_modules = by_track.get(prev_track_id, {}).get("modules") or []
+                    if prev_modules:
+                        module_prereqs.append(prev_modules[-1]["id"])
+            module["module_prerequisites"] = module_prereqs
+            module["curriculum_level"] = _curriculum_level_label(_infer_learning_stage(tid, module["id"]))
+            module["production_application"] = _collect_production_application(module)
+            module_anchor = f"{anchor}#module-{m_idx + 1}" if anchor else None
+            module["source_anchor"] = module_anchor
+
+            topics = module.get("topics") or []
+            for t_idx, topic in enumerate(topics):
+                topic_prereqs: list[str] = []
+                if t_idx > 0:
+                    topic_prereqs.append(topics[t_idx - 1]["id"])
+                else:
+                    for prev_module_id in module_prereqs:
+                        prev_module = module_by_id.get(prev_module_id)
+                        prev_topics = (prev_module or {}).get("topics") or []
+                        if prev_topics:
+                            topic_prereqs.append(prev_topics[-1]["id"])
+                topic["topic_prerequisites"] = topic_prereqs
+                topic["source_anchor"] = module_anchor
+
+
+def _validate_curriculum_sync_metadata(tracks: list[dict], all_ids: set[str]) -> None:
+    """Curriculum Sync Phase 2 validation: prerequisite-graph integrity,
+    unlock-chain correctness, no broken references, metadata completeness.
+    """
+    track_ids = {t["id"] for t in tracks}
+    module_ids = {m["id"] for t in tracks for m in (t.get("modules") or [])}
+    topic_ids = {
+        top["id"] for t in tracks for m in (t.get("modules") or []) for top in (m.get("topics") or [])
+    }
+
+    # --- Subject-level graph integrity ---
+    for t in tracks:
+        for pid in t.get("subject_prerequisites") or []:
+            if pid not in track_ids:
+                raise ValueError(f"Track '{t['id']}' has unknown subject_prerequisites entry '{pid}'")
+        for uid in t.get("subject_unlocks") or []:
+            if uid not in track_ids:
+                raise ValueError(f"Track '{t['id']}' has unknown subject_unlocks entry '{uid}'")
+        for rid in t.get("recommended_next_subjects") or []:
+            if rid not in track_ids:
+                raise ValueError(f"Track '{t['id']}' has unknown recommended_next_subjects entry '{rid}'")
+
+    # Career-readiness tracks must stay outside the academic prerequisite
+    # graph entirely: no prerequisites/unlocks/recommendations in or out.
+    for t in tracks:
+        tid = t["id"]
+        if tid in _ISOLATED_SUBJECTS:
+            if t.get("subject_prerequisites") or t.get("subject_unlocks") or t.get("recommended_next_subjects"):
+                raise ValueError(f"Isolated subject '{tid}' must have no academic prerequisite edges")
+        else:
+            if any(pid in _ISOLATED_SUBJECTS for pid in t.get("subject_prerequisites") or []):
+                raise ValueError(f"Subject '{tid}' must not depend on an isolated career-readiness track")
+            if any(uid in _ISOLATED_SUBJECTS for uid in t.get("subject_unlocks") or []):
+                raise ValueError(f"Subject '{tid}' must not unlock an isolated career-readiness track")
+
+    # Root subject: Programming Fundamentals must have zero prerequisites.
+    pf = next((t for t in tracks if t["id"] == "programming_fundamentals"), None)
+    if pf is None or pf.get("subject_prerequisites"):
+        raise ValueError("'programming_fundamentals' must exist with empty subject_prerequisites")
+
+    # Unlock chains must be the exact reverse of the prerequisite chain.
+    by_track_id = {t["id"]: t for t in tracks}
+    for t in tracks:
+        for pid in t.get("subject_prerequisites") or []:
+            if t["id"] not in (by_track_id[pid].get("subject_unlocks") or []):
+                raise ValueError(f"'{pid}' subject_unlocks is missing reverse edge to '{t['id']}'")
+
+    # No cycles in the subject-level dependency graph (a true DAG may have
+    # multiple parents per node, e.g. LLD/HLD \u2014 the DFS below already
+    # handles that generically).
+    color: dict[str, int] = {t["id"]: 0 for t in tracks}
+
+    def dfs(u: str, path: list[str]) -> None:
+        color[u] = 1
+        for v in by_track_id[u].get("subject_prerequisites") or []:
+            if color.get(v) == 1:
+                raise ValueError(f"Cycle in subject_prerequisites: {' -> '.join(path + [u, v])}")
+            if color.get(v) == 0:
+                dfs(v, path + [u])
+        color[u] = 2
+
+    for t in tracks:
+        if color[t["id"]] == 0:
+            dfs(t["id"], [])
+
+    # --- Module/topic level: no broken references, no cycles ---
+    for t in tracks:
+        for module in t.get("modules") or []:
+            for mid in module.get("module_prerequisites") or []:
+                if mid not in module_ids:
+                    raise ValueError(f"Module '{module['id']}' has unknown module_prerequisites entry '{mid}'")
+            for req_key in ("curriculum_level", "production_application", "source_anchor", "module_prerequisites"):
+                if req_key not in module:
+                    raise ValueError(f"Module '{module['id']}' missing required metadata '{req_key}'")
+            for topic in module.get("topics") or []:
+                for tid2 in topic.get("topic_prerequisites") or []:
+                    if tid2 not in topic_ids:
+                        raise ValueError(f"Topic '{topic['id']}' has unknown topic_prerequisites entry '{tid2}'")
+                for req_key in ("curriculum_level", "topic_prerequisites"):
+                    if req_key not in topic:
+                        raise ValueError(f"Topic '{topic['id']}' missing required metadata '{req_key}'")
+
+    module_color: dict[str, int] = {mid: 0 for mid in module_ids}
+    module_by_id_prereqs = {
+        m["id"]: (m.get("module_prerequisites") or [])
+        for t in tracks for m in (t.get("modules") or [])
+    }
+
+    def module_dfs(u: str, path: list[str]) -> None:
+        module_color[u] = 1
+        for v in module_by_id_prereqs.get(u, []):
+            if module_color.get(v) == 1:
+                raise ValueError(f"Cycle in module_prerequisites: {' -> '.join(path + [u, v])}")
+            if module_color.get(v) == 0:
+                module_dfs(v, path + [u])
+        module_color[u] = 2
+
+    for mid in list(module_ids):
+        if module_color[mid] == 0:
+            module_dfs(mid, [])
+
+
+def _validate_language_support_metadata(language_support: dict) -> None:
+    """Curriculum Sync Phase 2 validation for the future-ready, roadmap-wide
+    programming-language metadata (item 4) — structural sanity only."""
+    supported = language_support.get("supported_languages") or []
+    primary = language_support.get("primary_language_supported")
+    if primary is not None and primary not in supported:
+        raise ValueError(f"primary_language_supported '{primary}' not present in supported_languages")
+    for lang in (language_support.get("language_family") or {}):
+        if lang not in supported:
+            raise ValueError(f"language_family entry '{lang}' not present in supported_languages")
+
+
 def build() -> dict:
     for track in TRACKS:
         _walk_and_stamp(track)
@@ -3514,12 +3794,16 @@ def build() -> dict:
     _validate_dag(ids, all_nodes)
     _auto_link_related(TRACKS, all_nodes)
     _validate_metadata_integrity(all_nodes, ids)
+    _annotate_curriculum_sync_metadata(TRACKS)
+    _validate_curriculum_sync_metadata(TRACKS, ids)
+    _validate_language_support_metadata(_LANGUAGE_SUPPORT_METADATA)
 
     return {
         "version": VERSION,
         "generated_at": GENERATED_AT,
         "companies": COMPANIES,
         "tracks": TRACKS,
+        "language_support": _LANGUAGE_SUPPORT_METADATA,
         "stats": {
             "total_nodes": len(all_nodes),
             "tracks": len(TRACKS),
