@@ -220,12 +220,15 @@ _STAGE_ORDER = ("foundation", "core", "intermediate", "advanced")
 _UNDERSTOOD_BASELINE_SCORE = 85.0  # solid, deliberately not "mastered" (>=90)
 _NEUTRAL_BASELINE_RATING = 5.0
 
-# Mirrors services.learning_engine.planner.ENTRY_TRACK_ID (not imported directly
-# to avoid a circular import: planner.py already imports from this module).
-# Programming Fundamentals is the universal starting point for every learner,
-# so it is never pre-seeded from an onboarding rating — a brand-new user
-# always starts it at a genuine 0%, earned only by actually studying it.
-_ENTRY_TRACK_ID = "programming_fundamentals"
+# Curriculum Sync Phase 3: which tracks must NEVER receive an inherited or
+# default onboarding baseline is derived from the roadmap's own
+# `subject_prerequisites` DAG metadata (roadmap.subjects_without_prerequisites())
+# rather than a hardcoded track-id list. That set is exactly: the true root
+# of the academic chain (Programming Fundamentals — the universal starting
+# point, earned only by actually studying it) plus every subject deliberately
+# isolated from the DAG (Projects, Resume & LinkedIn, Behavioral — the
+# onboarding sliders never ask about these, so they must start at a genuine
+# 0% too, never a neutral/default "5" baseline).
 
 
 def _stage_for_rating(rating: float) -> str:
@@ -300,22 +303,29 @@ async def seed_knowledge_nodes_from_self_assessment(
     now = datetime.now(timezone.utc).isoformat()
     rows = []
     self_assessment = self_assessment or {}
-    # Seed every roadmap track, not just the ones covered by the onboarding
-    # self-assessment sliders (dsa/java/lld/hld/os/dbms/cn). Tracks the
-    # onboarding UI never asks about (behavioral/projects/resume) used to be
-    # left completely unseeded, which made every one of their nodes look
-    # maximally weak (ranking.py's cold-start default) forever — causing them
-    # to dominate the cross-track recommendation regardless of target
-    # company. A neutral baseline (matching the "5" default used elsewhere
-    # for unrated tracks, e.g. mission_engine.compute_readiness) keeps every
-    # track on equal footing until the learner actually engages with it.
+    # Curriculum Sync Phase 3: derive (never hardcode) which tracks get no
+    # baseline at all vs. a flat neutral baseline, straight from the
+    # roadmap's own `subject_prerequisites` DAG metadata.
+    #   - root_subjects: the true entry point(s) of the academic chain
+    #     (Programming Fundamentals) — never pre-seeded at all; a brand-new
+    #     learner earns progress here only by actually studying it.
+    #   - isolated_subjects: subjects with no `subject_prerequisites` AND no
+    #     `subject_unlocks` (Projects, Resume & LinkedIn, Behavioral) — the
+    #     onboarding sliders never ask about these, so they must also start
+    #     at a genuine 0% (status="not_started"), never an inherited/default
+    #     completion value. Every other roadmap track keeps the existing
+    #     flat/neutral "5" baseline (matching the "5" default used elsewhere
+    #     for unrated tracks, e.g. mission_engine.compute_readiness) so it
+    #     stays on equal footing until the learner actually engages with it.
+    root_subjects = set(roadmap.root_subject_ids())
+    isolated_subjects = set(roadmap.subjects_without_prerequisites()) - root_subjects
     for track in roadmap.track_ids():
-        if track == _ENTRY_TRACK_ID:
-            continue  # never pre-seeded — see _ENTRY_TRACK_ID above
+        if track in root_subjects:
+            continue  # never pre-seeded — see root_subjects above
         rating = self_assessment.get(track)
         if rating is None:
-            rating = _NEUTRAL_BASELINE_RATING
-        rating = float(rating)
+            rating = 0.0 if track in isolated_subjects else _NEUTRAL_BASELINE_RATING
+        rating = max(0.0, min(10.0, float(rating)))
         nodes = roadmap.get_track_learning_nodes(track)
         is_staged_track = any(node.get("learning_stage") in _STAGE_ORDER for node in nodes)
         starting_index = _STAGE_ORDER.index(_stage_for_rating(rating)) if is_staged_track else -1
@@ -326,9 +336,11 @@ async def seed_knowledge_nodes_from_self_assessment(
                 continue
 
             if not is_staged_track:
-                # Flat track (behavioral/projects/resume): old uniform baseline.
+                # Flat track (behavioral/projects/resume): uniform baseline —
+                # genuine 0%/not_started when no explicit rating was given,
+                # otherwise the prior "in_progress" proportional baseline.
                 fields = score_to_node_fields(rating * 10.0)
-                fields["status"] = "in_progress"
+                fields["status"] = "in_progress" if rating > 0 else "not_started"
             else:
                 node_index = _node_stage_index(node)
                 if node_index > starting_index:

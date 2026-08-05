@@ -80,79 +80,10 @@ class RoadmapEngine:
         for track in self._raw["tracks"]:
             track_id = track.get("id")
             _flatten(track, parent_id=None, depth=0, out=self._index, type_hint="track", track_id=track_id)
-        self._propagate_container_prerequisites()
         for node in self._index.values():
             pat = node.get("pattern")
             if pat:
                 self._by_pattern.setdefault(pat, []).append(node)
-
-    def _resolve_to_entry_leaf(self, node_id: Optional[str]) -> Optional[str]:
-        """Resolve any id to its first real leaf by walking the first child
-        repeatedly (mirrors `scripts/generate_roadmap.py::_leaf_entry_id`)."""
-        seen: set = set()
-        current = node_id
-        while current:
-            if current in seen or current not in self._index:
-                return None
-            seen.add(current)
-            children = self._index[current].get("child_ids") or []
-            if not children:
-                return current
-            current = children[0]
-        return None
-
-    def _propagate_container_prerequisites(self) -> None:
-        """Runtime parity fix (RC1.3.6A) for a container-prerequisite gap in
-        the currently-loaded `data/roadmap_v1.json`: it was generated before
-        `scripts/generate_roadmap.py::_propagate_container_prerequisites` was
-        fixed to gate EVERY descendant leaf instead of only the first-child
-        chain, so most non-entry branches under a container that declares
-        `prerequisites` (e.g. 5 of `dsa.dp.core`'s 6 branches) were left
-        without them and are falsely treated as unlocked from day one.
-
-        This mirrors the fixed generator algorithm in-memory, once, at
-        singleton construction — so behavior is correct immediately without
-        touching the JSON file. A future roadmap regeneration bakes the same
-        result directly into the data and this pass becomes a no-op (every
-        id it would add is already present, so nothing changes on re-run).
-        Purely additive: only appends ids to a leaf's own `prerequisites`
-        list, never removes any, never duplicates, never lets a leaf list
-        itself.
-        """
-        for node in list(self._index.values()):
-            container_prereqs = node.get("prerequisites") or []
-            child_ids = node.get("child_ids") or []
-            if not child_ids or not container_prereqs:
-                continue
-            leaf_ids: List[str] = []
-            seen: set = set()
-            stack = list(child_ids)
-            while stack:
-                cid = stack.pop()
-                if cid in seen or cid not in self._index:
-                    continue
-                seen.add(cid)
-                grandchildren = self._index[cid].get("child_ids") or []
-                if grandchildren:
-                    stack.extend(grandchildren)
-                else:
-                    leaf_ids.append(cid)
-            if not leaf_ids:
-                continue
-            resolved_prereqs: List[str] = []
-            for pid in container_prereqs:
-                resolved = self._resolve_to_entry_leaf(pid) or pid
-                if resolved not in resolved_prereqs:
-                    resolved_prereqs.append(resolved)
-            for leaf_id in leaf_ids:
-                leaf = self._index.get(leaf_id)
-                if leaf is None:
-                    continue
-                existing = list(leaf.get("prerequisites") or [])
-                for resolved in resolved_prereqs:
-                    if resolved != leaf_id and resolved not in existing:
-                        existing.append(resolved)
-                leaf["prerequisites"] = existing
 
     @staticmethod
     def _load(version: str) -> dict:
@@ -322,6 +253,72 @@ class RoadmapEngine:
 
     def track_ids(self) -> List[str]:
         return [t["id"] for t in self._raw["tracks"]]
+
+    # ---------- Curriculum Sync DAG metadata (Phase 3) ----------
+    # `subject_prerequisites` / `module_prerequisites` / `topic_prerequisites`
+    # are stamped on every track/module/topic by
+    # `scripts/generate_roadmap.py::_annotate_curriculum_sync_metadata`.
+    # These accessors let runtime code DERIVE subject/module/topic ordering
+    # and eligibility straight from that metadata instead of re-encoding a
+    # parallel hardcoded chain/list — the single-source-of-truth contract
+    # Curriculum Sync Phase 3 requires.
+
+    def subjects_without_prerequisites(self) -> List[str]:
+        """Track ids whose `subject_prerequisites` list is empty.
+
+        This is exactly the set of subjects with nothing upstream in the DAG:
+        the true root of the academic chain (Programming Fundamentals) plus
+        every subject deliberately isolated from it (Projects, Resume &
+        LinkedIn, Behavioral). Used to derive — instead of hardcode — which
+        tracks must never receive an inherited/default onboarding baseline.
+        """
+        return [t["id"] for t in self._raw["tracks"] if not (t.get("subject_prerequisites") or [])]
+
+    def root_subject_ids(self) -> List[str]:
+        """Track ids that start the academic DAG: no `subject_prerequisites`
+        of their own, but they DO unlock at least one other subject. This
+        distinguishes the true entry point(s) (e.g. Programming Fundamentals)
+        from subjects that are simply isolated from the DAG entirely
+        (Projects/Resume/Behavioral, which unlock nothing)."""
+        return [
+            t["id"]
+            for t in self._raw["tracks"]
+            if (
+                not (t.get("subject_prerequisites") or [])
+                and t.get("modules")
+                and (t.get("subject_unlocks") or [])
+            )
+        ]
+
+    def is_subject_unlocked(self, track_id: str, completed_subject_ids: Iterable[str] = ()) -> bool:
+        """Return whether every prerequisite subject in the DAG is satisfied.
+
+        Supports multiple prerequisites (e.g. HLD requires Java, DBMS,
+        Operating Systems, Computer Networks AND LLD all at once) — a subject
+        is eligible only once ALL of its `subject_prerequisites` are present
+        in `completed_subject_ids`, not just any one of them.
+        """
+        track = self.get(track_id)
+        if not track:
+            return False
+        completed = set(completed_subject_ids)
+        return all(pre in completed for pre in track.get("subject_prerequisites") or [])
+
+    def is_module_unlocked(self, module_id: str, completed_module_ids: Iterable[str] = ()) -> bool:
+        """Return whether every prerequisite module in the DAG is satisfied."""
+        module = self.get(module_id)
+        if not module:
+            return False
+        completed = set(completed_module_ids)
+        return all(pre in completed for pre in module.get("module_prerequisites") or [])
+
+    def is_topic_unlocked(self, topic_id: str, completed_topic_ids: Iterable[str] = ()) -> bool:
+        """Return whether every prerequisite topic in the DAG is satisfied."""
+        topic = self.get(topic_id)
+        if not topic:
+            return False
+        completed = set(completed_topic_ids)
+        return all(pre in completed for pre in topic.get("topic_prerequisites") or [])
 
     # ---------- Learning-node traversal ----------
     @staticmethod

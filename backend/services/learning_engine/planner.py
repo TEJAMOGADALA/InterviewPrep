@@ -26,7 +26,6 @@ from services.progress_engine import load_user_progress_rows
 
 CORE_TRACKS = ["operating_systems", "dbms", "computer_networks"]
 COMPLETED_STATUSES = {"completed", "mastered", "revision_due"}
-ENTRY_TRACK_ID = "programming_fundamentals"
 BEGINNER_POSITIONS = {"student", "fresher", "0-1"}
 
 
@@ -354,8 +353,10 @@ async def get_today_learning_node(
         return None
 
     if _is_first_time_beginner(onboarding, recent_completions):
+        root_subjects = roadmap.root_subject_ids()
+        entry_track = root_subjects[0] if root_subjects else None
         entry_node = next(
-            (node for node in eligible_nodes if node.get("track") == ENTRY_TRACK_ID),
+            (node for node in eligible_nodes if node.get("track") == entry_track),
             None,
         )
         if entry_node is not None:

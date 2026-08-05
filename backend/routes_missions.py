@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 from auth_utils import get_current_user
 from models import (
     DailyMission, MissionTask, StudyStreak,
-    ActivityEvent, TOPIC_KEYS, OnboardingPatch, OnboardingRecord,
+    ActivityEvent, OnboardingPatch, OnboardingRecord,
     ProblemAssignment, ProblemFeedbackPayload, ProblemFeedback, MissionAdjustment,
     WeaknessRecord,
 )
@@ -107,7 +107,7 @@ async def _get_knowledge(db, user_id: str) -> list:
     progress_rows = await load_user_progress_rows(db, user_id)
     canonical = build_canonical_progress(roadmap, progress_rows)
     result = []
-    for t in TOPIC_KEYS:
+    for t in roadmap.track_ids():
         roll = canonical.get(t) or {}
         if roll.get("status", "not_started") == "not_started":
             continue
@@ -1050,12 +1050,21 @@ async def get_dashboard(user=Depends(get_current_user)):
     baseline = onboarding.get("self_assessment", {})
     progress_by_topic = {kp["topic"]: kp for kp in knowledge}
     knowledge_view = []
-    for t in TOPIC_KEYS:
-        kp = progress_by_topic.get(t)
-        score = kp["score"] if kp else (baseline.get(t, 5) * 10)
+    roadmap = get_roadmap()
+    for track_id in roadmap.track_ids():
+        kp = progress_by_topic.get(track_id)
+
+        if kp:
+            score = kp["score"]
+        else:
+            score = baseline.get(track_id, 0) * 10
+
+        track = roadmap.get(track_id)
+        label = getattr(track, "title", track_id.replace("_", " ").title())
+
         knowledge_view.append({
-            "topic": t,
-            "label": TOPIC_META[t]["label"],
+            "topic": track_id,
+            "label": label,
             "score": round(score, 1),
             "completions": kp.get("completions", 0) if kp else 0,
         })
@@ -1143,7 +1152,22 @@ async def patch_onboarding(payload: OnboardingPatch, user=Depends(get_current_us
             description=", ".join(updates.keys()),
         )
         merged = {**existing, **updates}
-        avg_skill = sum(merged.get("self_assessment", {}).get(t, 5) for t in TOPIC_KEYS) / 7.0
+        assessment_topics = [
+            track_id
+            for track_id in get_roadmap().track_ids()
+            if track_id not in {
+                "projects",
+                "resume",
+                "behavioral",
+            }
+        ]
+        avg_skill = (
+            sum(
+                merged.get("self_assessment", {}).get(t, 0)
+                for t in assessment_topics
+            )
+            / len(assessment_topics)
+        )
         base = 180 - avg_skill * 12
         hours = float(merged.get("daily_study_hours", 2))
         estimated = max(30, int(base * (4.0 / max(hours, 1)) / 2))
