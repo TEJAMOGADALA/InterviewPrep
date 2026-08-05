@@ -74,24 +74,53 @@ def eligible_learning_nodes(
     *,
     urgency: float = 0.0,
     skip_node_ids: Optional[Iterable[str]] = None,
+    virtual_completed_node_ids: Optional[Iterable[str]] = None,
 ) -> List[dict]:
     """Return roadmap learning nodes that are genuinely eligible today.
 
     `progress_rows` is the standard node_id -> knowledge_nodes-row dict
     (`progress_engine.load_user_progress_rows`); `subject_states` is the
     output of `stage_engine.compute_all_subject_states` for the same user.
+
+    ``virtual_completed_node_ids`` (Phase 4 Step 2, optional) is a set of
+    leaf-node ids the planner treats as *effectively* completed for
+    subject-DAG unlocking. This is populated by
+    :meth:`LearnerContext.virtual_completed_node_ids` from tracks whose
+    blended (self-assessment + actual) effective knowledge exceeds
+    :data:`context.EFFECTIVE_SUBJECT_COMPLETE_THRESHOLD`, and it is
+    used ONLY inside the planner pipeline — KB/UI unlock rules keep
+    consuming the real, actual completion set. Absent (default None)
+    keeps the pre-Phase-4-Step-2 behaviour byte-identical.
     """
+    # Local import to avoid a cycle at module import time.
+    from services.learning_engine.unlock import get_unlocked_nodes as _base_get_unlocked
+
     skip_ids = set(skip_node_ids or [])
     completed_ids = {
         nid for nid, row in progress_rows.items()
         if (row.get("status") or "").lower() in _COMPLETED_STATUSES
     }
-    unlocked = get_unlocked_nodes(list(progress_rows.values()))
+    virtual = set(virtual_completed_node_ids or [])
+
+    if virtual:
+        # Union actual completions with virtual ones for the unlock walk.
+        # Emit synthetic "completed" rows so the roadmap unlock helper
+        # (which reads status) treats them as done.
+        merged_rows = list(progress_rows.values())
+        merged_rows.extend(
+            {"node_id": nid, "status": "completed"} for nid in virtual if nid not in completed_ids
+        )
+        unlocked = _base_get_unlocked(merged_rows)
+    else:
+        unlocked = _base_get_unlocked(list(progress_rows.values()))
 
     eligible: List[dict] = []
     for node in unlocked:
         node_id = node.get("id")
-        if node_id in completed_ids or node_id in skip_ids:
+        # Skip both fully-completed and virtually-completed nodes — a
+        # virtually-completed track's nodes are treated as done, not as
+        # today's next step.
+        if node_id in completed_ids or node_id in skip_ids or node_id in virtual:
             continue
         subject_state = subject_states.get(node.get("track"))
         if subject_state is None:

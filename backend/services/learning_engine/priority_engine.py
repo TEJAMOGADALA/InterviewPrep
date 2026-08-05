@@ -87,6 +87,12 @@ def _compute_breakdown(node: dict, context: LearnerContext) -> dict:
     the context and then into `ranking.score_learning_node`. This
     wrapper intentionally has NO branching of its own — it's a thin
     adapter that hides the argument-drilling.
+
+    Phase 4 Step 2: the LearnerContext itself is forwarded as
+    ``learner_context`` so the adaptive signal terms activate. Callers
+    that construct an empty context still get exactly the pre-Phase-4-
+    Step-2 output because every adaptive term is anchored on data
+    that's absent from an empty context.
     """
     return score_learning_node(
         node,
@@ -99,6 +105,7 @@ def _compute_breakdown(node: dict, context: LearnerContext) -> dict:
         recent_track_ids=context.recent_track_ids,
         position=context.position,
         onboarding_scores=context.onboarding_scores,
+        learner_context=context,
     )
 
 

@@ -102,11 +102,167 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "PrepOS Phase 4 · Step 1 — Adaptive Planning Foundation. Refactor the planner from a decision-maker into a pure orchestrator. Separate candidate generation, priority scoring, and mission composition into single-responsibility engines. Introduce a generalized Priority Engine that scores every eligible roadmap candidate from curriculum metadata + learner context. Remove hardcoded learner profiles, company-specific if/else chains, and scenario-specific branching in favor of metadata-driven, extensible signals. Preserve all existing APIs, roadmap, onboarding, dashboard, mission, and Coding Arena integrations. Keep runtime deterministic. Earlier iterations (RC1.3.4 – Knowledge Workspace, etc.) remain unchanged and are recorded below for continuity."
+user_problem_statement: "PrepOS Phase 4 · Step 2 — Adaptive Planning Engine. Replace primarily roadmap-order driven planning with adaptive planning: the planner infers today's highest-value learning objective from a WEIGHTED SUM of many signals (curriculum prerequisites, self-assessment, actual mastery, confidence, experience, interview timeline, study hours, target company, revision, momentum, difficulty progression, etc.) instead of blindly walking the curriculum. No learner-specific rules, no company-specific if/else, no experience-specific if/else — decisions emerge from a generalized scoring model. Extends the Phase 4 Step 1 architecture (LearnerContext + PriorityEngine + Companion + Cold Start + Thin Planner) without redesigning it. Preserves all existing APIs, roadmap contracts, and passes every legacy test."
+
+original_prd_step1: "PrepOS Phase 4 · Step 1 — Adaptive Planning Foundation.
 
 original_prd: "PrepOS RC1.3.4 – Knowledge Experience & Learning Workspace. Extend the existing Knowledge Base into a full learning workspace with seven lenses (All Topics, Continue Learning, Bookmarks, Favorites, Weak Topics, Revision Due, Recently Viewed). All lenses derive from data already exposed by `/api/roadmap`, `/api/roadmap/summary` and `/api/revisions/queue` — no new endpoint, no new Mongo collection, no schema change. Bookmark/Favorite toggles reuse the existing RC1.3.2B mutation hooks (`useToggleBookmark`, `useToggleFavorite`) so a single toggle updates deep node, tree, workspace list, and Mission Control together. Recently-viewed tracking is a user-scoped localStorage list (`prepos:recently-viewed:v1:<userId>`) recorded when DeepTopicPage loads a node — cross-user isolation matches RC1.3.3 React Query key scheme. `useProgressTree` is now a thin backwards-compat shim over `useRoadmapTree`, removing a hidden global-cache leak. Stat strip reuses `useRoadmapSummary` — no extra API call. Search + filters remain client-side and stack on top of the active view. Weak-topic filter reuses the same signals the adaptive planner already uses (confidence, weakness_score, revision_due) — no new algorithm."
 
 backend:
+  - task: "Phase 4 · Step 2 — Adaptive Planning Engine (weighted scoring model)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/services/learning_engine/ranking.py, /app/backend/services/learning_engine/context.py, /app/backend/services/learning_engine/adaptive_weights.py, /app/backend/services/learning_engine/eligibility.py, /app/backend/services/learning_engine/cold_start.py, /app/backend/services/learning_engine/priority_engine.py, /app/backend/services/learning_engine/planner.py, /app/backend/tests/test_adaptive_planning_phase4_step2.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Extended the Phase 4 Step 1 architecture (LearnerContext,
+          PriorityEngine, Companion, ColdStart, Thin Planner) with a
+          generalized adaptive scoring model. The planner still
+          orchestrates; the WEIGHTED SUM inside ranking.py is what
+          now decides what should be learned today. No learner-specific
+          rules, no company-specific if/else, no experience-specific
+          branching.
+
+          NEW MODULE
+            • services/learning_engine/adaptive_weights.py
+              Central registry of every signal weight consumed by the
+              scoring formula. `DEFAULT_ADAPTIVE_WEIGHTS` dict + a
+              `resolve_weights(overrides)` helper so tests and future
+              A/B experiments can shift a subset of weights without
+              touching the ranking module.
+
+          EXTENDED (single-responsibility, additive)
+            • services/learning_engine/context.py
+              LearnerContext gained adaptive-knowledge helpers:
+                - track_completion_count(track)
+                - track_average_mastery(track)
+                - mastery_evidence_weight(track)  (α ramp: 0 -> 1 as
+                  completions accumulate — the mechanism satisfying
+                  Case J "actual progress outweighs onboarding")
+                - effective_knowledge_score(track)  (blended
+                  self-assessment + actual mastery on 0-100 scale)
+                - effectively_completed_tracks(threshold=70)
+                - virtual_completed_node_ids()  (planner-only view
+                  of subject-DAG unlocks driven by effective knowledge)
+                - recent_topics(limit) for topic-level freshness
+            • services/learning_engine/ranking.py
+              Added 8 opt-in adaptive signals to score_learning_node,
+              each a bounded scalar multiplied by its named weight
+              from adaptive_weights.py. All zero without a
+              LearnerContext (byte-identical output preserved for
+              every pre-Phase-4-Step-2 caller):
+                1. effective_knowledge_gap  (blended gap + company
+                   amplification — 0-5 importance -> 1x-3x)
+                2. subject_readiness_bonus  (learning-headroom)
+                3. subject_transition_bonus  (rewards a subject that
+                   just became DAG-available)
+                4. prerequisite_gap_penalty  (SUM of shortfalls over
+                   subject_prerequisites — HLD w/ 5 unmet prereqs
+                   accumulates much more penalty than DSA w/ 1)
+                5. momentum_bonus  (streak of same-track completions)
+                6. topic_freshness_penalty  (topic-level variety)
+                7. difficulty_smoothness_penalty  (no big difficulty
+                   jumps — data-driven ladder from mastery, no
+                   hardcoded band table)
+                8. revision_confidence_bonus  (spaced repetition +
+                   confidence drop)
+              foundation_bonus now gated on effective subject-DAG
+              readiness when a context is supplied (prevents
+              "unlocked but way-too-advanced" foundational nodes
+              from being surfaced).
+              Legacy weight constants (_SEQUENCE_GATE_PENALTY,
+              _RECENCY_PENALTY, _SKIP_DEFERRAL_PENALTY,
+              _TRACK_FATIGUE_PENALTY, _FOUNDATION_BONUS) now read
+              from DEFAULT_ADAPTIVE_WEIGHTS for the single source of
+              truth.
+            • services/learning_engine/eligibility.py
+              eligible_learning_nodes gained an optional
+              virtual_completed_node_ids parameter. When supplied,
+              subject-DAG unlocks proceed on effective (self-
+              assessment blended) knowledge; UI/KB unlock paths
+              remain untouched.
+            • services/learning_engine/cold_start.py
+              Cold-start detection now fires only when NO baseline
+              track has effective knowledge >= 50 (in addition to the
+              existing "no completions" / "inexperienced position"
+              gate). This is what lets Case A3 (student, PF=8,
+              Java=1) fall through to normal scoring where the
+              subject_transition_bonus routes the learner into Java.
+            • services/learning_engine/priority_engine.py
+              _compute_breakdown forwards LearnerContext as
+              learner_context= into ranking.score_learning_node so
+              the adaptive terms activate everywhere the priority
+              engine is used.
+            • services/learning_engine/planner.py
+              Passes virtual_completed_node_ids into eligibility so
+              subject-DAG branching kicks in.
+            • services/learning_engine/__init__.py
+              Exports adaptive_weights.
+
+          NEW BEHAVIOURAL TESTS
+            • tests/test_adaptive_planning_phase4_step2.py
+              17 tests covering Categories A (cold start), B
+              (programming complete), C (core CS transition), D
+              (senior learners), E (company awareness), F (timeline),
+              J (self-assessment vs actual mastery), K (cross-branch
+              decisions) plus adaptive-model invariants:
+                - backwards_compat_default_ranking_unchanged
+                - effective_knowledge_is_pure_self_assessment_at_zero_evidence
+                - effective_knowledge_asymptotes_toward_actual
+                - weights_registry_supports_per_call_overrides
+              All 17 pass.
+
+          WHY THE MODEL GENERALIZES
+            Every decision emerges from a weighted sum of signals
+            drawn from ONLY:
+              - roadmap-authored metadata (prerequisites, mastery_weight,
+                difficulty, company_importance, interview_frequency,
+                subject_prerequisites),
+              - live learner state (knowledge_nodes rows: mastery,
+                confidence, weakness, next_revision),
+              - onboarding data (position, self_assessment, target
+                companies, study hours, interview_target_date),
+              - recent mission history (recent_track_ids,
+                recent_node_ids, skipped_node_ids, recent_completions).
+            No code path inspects a specific learner id, company id,
+            programming language, or position enum value. Adding a
+            new company means adding one row to the roadmap's
+            company_importance dict — no code change. Adding a new
+            track works the same way. Adding a new signal is a
+            three-step, single-file-per-step change: (1) new derived
+            property on LearnerContext, (2) new helper +
+            multiplication in ranking.py, (3) new weight in
+            adaptive_weights.py.
+
+          REGRESSION RISKS
+            LOW. All 88 broad-relevant tests + 17 new adaptive tests
+            = 105 tests pass. The only two pre-existing failures on
+            main (test_interview_pacing::…practice_count and
+            test_onboarding_knowledge_seed::…every_track) are
+            unchanged and unrelated. Legacy callers of ranking.py
+            without a LearnerContext get byte-identical output because
+            every adaptive term evaluates to 0.0 without a context.
+
+          VALIDATION SUMMARY
+            Cold Start (A1) - student, all zeros -> PF ✓
+            Cold Start (A2) - student, PF=2 -> continues PF ✓
+            Cold Start (A3) - student, PF=8 Java=1 -> Java ✓
+            B1 - PF+Java complete, Oracle -> Core CS/DSA ✓
+            B2 - PF+Java complete, Google -> DSA ✓
+            C1 - PF+Java+DSA complete -> Core CS ✓
+            D1 - senior, weak DSA, Google -> DSA ✓
+            D2 - senior, strong DSA, weak Core CS -> Core CS ✓
+            E1/E2 - same learner, Google vs Oracle -> different pick ✓
+            F1 - 7-day timeline -> urgent scoring ✓
+            J1 - low mastery > high self-assessment -> effective low ✓
+            J2 - high mastery > low self-assessment -> effective high ✓
+            K - Google vs Oracle same learner -> flips priority ✓
+
   - task: "Phase 4 · Step 1 — Adaptive Planning Foundation (planner orchestrator + Priority Engine)"
     implemented: true
     working: "NA"
@@ -826,12 +982,94 @@ metadata:
 
 test_plan:
   current_focus:
+    - "Phase 4 · Step 2 — Adaptive Planning Engine (weighted scoring model)"
     - "Phase 4 · Step 1 — Adaptive Planning Foundation (planner orchestrator + Priority Engine)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
 
 agent_communication:
+  - agent: "main"
+    message: |
+      Phase 4 · Step 2 complete — planner is now fully adaptive.
+
+      NEW FILES
+        - services/learning_engine/adaptive_weights.py         (weight registry)
+        - tests/test_adaptive_planning_phase4_step2.py         (17 behavioural tests)
+
+      MODIFIED FILES
+        - services/learning_engine/context.py                  (effective_knowledge helpers)
+        - services/learning_engine/ranking.py                  (+8 adaptive signal terms)
+        - services/learning_engine/eligibility.py              (virtual completions param)
+        - services/learning_engine/cold_start.py               (effective-knowledge guard)
+        - services/learning_engine/priority_engine.py          (forwards context)
+        - services/learning_engine/planner.py                  (passes virtual completions)
+        - services/learning_engine/__init__.py                 (exports adaptive_weights)
+
+      NEW SIGNALS (all opt-in via LearnerContext; zero cost without it)
+        1. effective_knowledge_gap  - blended (self-assessment + actual)
+           with company amplification. Solves Cases J1/J2.
+        2. subject_readiness_bonus  - learning-headroom for the track.
+        3. subject_transition_bonus - fires when a subject just became
+           DAG-available via effective knowledge. Solves Cases A3, B,
+           C, D transitions.
+        4. prerequisite_gap_penalty - SUM of shortfalls across all
+           subject_prerequisites; keeps HLD out of a learner still
+           weak in Java/DSA/etc. Solves I1, K.
+        5. momentum_bonus           - streak of same-track completions.
+        6. topic_freshness_penalty  - variety across missions.
+        7. difficulty_smoothness_penalty - no big difficulty jumps.
+        8. revision_confidence_bonus - spaced-repetition + forget signal.
+
+      DECISION FLOW (unchanged from Step 1)
+        LearnerContext -> revision short-circuit -> eligibility (with
+        virtual completions) -> cold-start (guarded) -> candidate
+        generation -> priority engine (weighted-sum scoring +
+        continuity tie-break) -> companion (support + core) ->
+        insight + foresight -> build_learning_recommendation.
+
+      WHY THE MODEL GENERALIZES
+        The scoring formula is a single-line weighted sum in ranking.py.
+        Every term reads from roadmap metadata + LearnerContext helpers.
+        No if/else on a specific company id, learner id, programming
+        language, or position label. Extending the model = add one
+        helper + one weight — the planner orchestrator itself never
+        changes.
+
+      REGRESSION RISKS: LOW
+        - 105 tests pass (88 pre-existing relevant + 17 new adaptive).
+        - Legacy `rank_learning_nodes` output is BYTE-IDENTICAL when
+          the caller doesn't pass a LearnerContext (all adaptive terms
+          are 0.0 without context).
+        - The two pre-existing failures on main
+          (test_interview_pacing::…practice_count,
+          test_onboarding_knowledge_seed::…every_track) are unchanged
+          and unrelated to this refactor.
+        - Curriculum markdown, roadmap generation, onboarding APIs,
+          authentication, dashboard APIs, KB APIs, Mission DTO,
+          Coding Arena integration — all untouched.
+
+      SIGNAL WEIGHTS (canonical; see adaptive_weights.py)
+        knowledge_gap:                  1.0
+        effective_knowledge_gap:        0.6  (activates with context)
+        company_score:                  3.0
+        subject_readiness_bonus:       12.0
+        subject_transition_bonus:     100.0
+        prerequisite_gap_penalty:      60.0
+        momentum_bonus:                 6.0
+        topic_freshness_penalty:       10.0
+        difficulty_smoothness_penalty: 14.0
+        revision_confidence_bonus:     20.0
+        (legacy weights preserved: sequence_penalty, recency_penalty,
+        skip_penalty, fatigue_penalty, foundation_bonus)
+
+      TUNABILITY
+        Product / A-B experiments can override any weight via
+        `resolve_weights({"subject_transition_bonus": 80})` and pass
+        it to score_learning_node without editing code. New signals
+        become extensions to adaptive_weights.DEFAULT_ADAPTIVE_WEIGHTS
+        + one helper in ranking.py + one line in the summation.
+
   - agent: "main"
     message: |
       Phase 4 · Step 1 complete — planner is now a thin orchestrator.

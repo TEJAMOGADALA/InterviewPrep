@@ -21,6 +21,9 @@ Every layer is a single-responsibility module:
     planner.py         -- thin orchestrator (Phase 4)
 """
 
+from .adaptive_weights import (
+    DEFAULT_ADAPTIVE_WEIGHTS, ResolvedWeights, resolve_weights,
+)
 from .builder import build_learning_recommendation
 from .context import LearnerContext, build_learner_context
 from .planner import get_today_learning_node
@@ -38,6 +41,9 @@ from .unlock import get_unlocked_nodes, is_node_unlocked, next_unlockable_nodes
 
 __all__ = [
     "build_learning_recommendation",
+    "DEFAULT_ADAPTIVE_WEIGHTS",
+    "ResolvedWeights",
+    "resolve_weights",
     "LearnerContext",
     "build_learner_context",
     "get_today_learning_node",

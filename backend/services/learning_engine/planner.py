@@ -218,11 +218,18 @@ async def get_today_learning_node(
             return _finalize(node, revision, context, insight=insight)
 
     # ---- 2. Eligibility engine ------------------------------------------
+    # Phase 4 Step 2: virtual completions from tracks with high effective
+    # knowledge propagate into the subject-DAG unlock so a learner who
+    # self-declares strong Programming Fundamentals can immediately
+    # progress into Java on day one (Case A3), etc. These "virtual"
+    # completions are never persisted; only the planner sees them.
+    virtual_completed = context.virtual_completed_node_ids()
     roadmap = get_roadmap()
     subject_states = compute_all_subject_states(roadmap, context.progress_map)
     eligible = eligible_learning_nodes(
         context.progress_map, subject_states,
         urgency=context.urgency, skip_node_ids=context.skip_node_ids,
+        virtual_completed_node_ids=virtual_completed,
     )
     if not eligible:
         return None

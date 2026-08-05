@@ -33,6 +33,7 @@ Design contract:
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Set
 
@@ -41,6 +42,34 @@ from services.learning_engine.composition import (
 )
 
 _COMPLETED_STATUSES = {"completed", "mastered", "revision_due"}
+
+# Phase 4 Step 2 · Effective-knowledge blending.
+#
+# The planner should trust ACTUAL mastery over the learner's onboarding
+# self-assessment as evidence accumulates. We model this as a sigmoid-
+# style ramp where the blend weight α on actual mastery grows with the
+# number of completed nodes in the track. With 0 completions α ≈ 0 (all
+# signal comes from self-assessment); with `EVIDENCE_HALF_LIFE`
+# completions α = 0.5 (equal weight); asymptotically α → 1 (self-
+# assessment is ignored).
+#
+# The half-life is deliberately low (2 completions) so a learner who has
+# actually done a few problems on a track is trusted primarily by their
+# real signal. This is the mechanism that satisfies Case J
+# ("actual progress outweighs onboarding self-assessment").
+EVIDENCE_HALF_LIFE: float = 2.0
+
+# When the blended effective knowledge for a subject exceeds this
+# threshold, the planner treats the subject as *effectively* completed
+# for the purposes of subject-DAG unlocking of downstream tracks. This
+# lets a self-declared strong learner (Case A3: PF=8 self-assessment)
+# progress into Java on day one without waiting to actually finish every
+# Programming Fundamentals node.
+#
+# Not a hard override on the roadmap unlock rule — actual completion
+# still governs KB/UI unlocking. This is a planner-only branching
+# signal (see planner.py → eligibility.eligible_learning_nodes).
+EFFECTIVE_SUBJECT_COMPLETE_THRESHOLD: float = 70.0
 
 
 @dataclass
@@ -154,6 +183,174 @@ class LearnerContext:
         if self.recent_completions:
             return True
         return bool(self.completed_node_ids())
+
+    # -----------------------------------------------------------------
+    # Phase 4 Step 2 · adaptive-knowledge signals
+    # -----------------------------------------------------------------
+    # Every helper below is DERIVED, deterministic, and reads only what
+    # the context already carries. No new Mongo query, no roadmap
+    # mutation.
+
+    def track_completion_count(self, track: Optional[str]) -> int:
+        """Return the number of completed learning nodes on ``track``.
+
+        This is the "evidence weight" input to
+        :meth:`effective_knowledge_score` — as the learner completes
+        more nodes on a track, actual mastery gradually outweighs the
+        one-time onboarding self-assessment.
+        """
+        if not track:
+            return 0
+        counter: Counter = Counter()
+        for row in self.progress_rows or []:
+            if not isinstance(row, dict):
+                continue
+            status = (row.get("status") or "").lower()
+            if status not in _COMPLETED_STATUSES:
+                continue
+            if row.get("track") == track:
+                counter[row.get("track")] += 1
+        return int(counter.get(track, 0))
+
+    def track_average_mastery(self, track: Optional[str]) -> Optional[float]:
+        """Return the mean mastery_percentage across the learner's rows
+        on ``track``, or None when no rows exist yet.
+
+        Aggregating at the TRACK level (rather than the single-node
+        level) gives a stable subject-wide signal — the scoring model
+        needs to reason about "how well does this learner know Java",
+        not just "how well does this learner know java.threads.core".
+        """
+        if not track:
+            return None
+        masteries: List[float] = []
+        for row in self.progress_rows or []:
+            if not isinstance(row, dict) or row.get("track") != track:
+                continue
+            val = row.get("mastery_percentage", row.get("mastery"))
+            try:
+                masteries.append(float(val))
+            except (TypeError, ValueError):
+                continue
+        if not masteries:
+            return None
+        return sum(masteries) / len(masteries)
+
+    def mastery_evidence_weight(self, track: Optional[str]) -> float:
+        """Return α ∈ [0, 1] for how much to trust actual mastery vs
+        self-assessment on ``track``.
+
+        α is a sigmoid-shaped ramp: α = n / (n + EVIDENCE_HALF_LIFE),
+        so α(0)=0 (no evidence yet → trust the onboarding declaration),
+        α(EVIDENCE_HALF_LIFE)=0.5 (equal blend), α→1 for many
+        completions. This shape is DATA-DRIVEN — no hardcoded position
+        enum, no company enum.
+        """
+        n = float(self.track_completion_count(track))
+        return n / (n + EVIDENCE_HALF_LIFE) if (n + EVIDENCE_HALF_LIFE) > 0 else 0.0
+
+    def effective_knowledge_score(self, track: Optional[str]) -> float:
+        """Return the learner's blended knowledge score on ``track``
+        (0-100 scale).
+
+        Blending rule:
+            effective = α * actual_mastery + (1 - α) * self_assessment * 10
+
+        where α = :meth:`mastery_evidence_weight` and
+        self_assessment is the onboarding slider value on the 0-10
+        scale. When actual mastery is missing (no rows yet) the blend
+        reduces to pure self-assessment; when many completions exist,
+        it approaches pure actual mastery — which is the "actual
+        progress gradually outweighs onboarding" behaviour the
+        Phase 4 brief calls out.
+        """
+        alpha = self.mastery_evidence_weight(track)
+        mastery = self.track_average_mastery(track)
+        self_assessment = self.onboarding_scores.get(track) if track else None
+        try:
+            self_val = float(self_assessment) * 10.0 if self_assessment is not None else None
+        except (TypeError, ValueError):
+            self_val = None
+        if mastery is None and self_val is None:
+            return 0.0
+        if mastery is None:
+            return max(0.0, min(100.0, self_val or 0.0))
+        if self_val is None:
+            return max(0.0, min(100.0, mastery))
+        return max(0.0, min(100.0, alpha * mastery + (1.0 - alpha) * self_val))
+
+    def effectively_completed_tracks(
+        self,
+        *,
+        threshold: float = EFFECTIVE_SUBJECT_COMPLETE_THRESHOLD,
+    ) -> Set[str]:
+        """Return the set of track ids the planner treats as effectively
+        finished for subject-DAG branching purposes.
+
+        A track qualifies when its effective_knowledge_score meets the
+        threshold. Metadata-driven: no hardcoded track list; the loop
+        walks whatever tracks the learner has self-assessment scores
+        for. Used ONLY inside the planner pipeline — the KB and
+        Roadmap views continue to use actual completion for their
+        unlock rules.
+        """
+        result: Set[str] = set()
+        seen: Set[str] = set(self.onboarding_scores.keys())
+        # Also consider tracks present in progress rows even when
+        # onboarding never scored them (rare but possible if the
+        # curriculum grows a new track after onboarding).
+        for row in self.progress_rows or []:
+            track = row.get("track") if isinstance(row, dict) else None
+            if track:
+                seen.add(track)
+        for track in seen:
+            if self.effective_knowledge_score(track) >= threshold:
+                result.add(track)
+        return result
+
+    def virtual_completed_node_ids(
+        self,
+        *,
+        threshold: float = EFFECTIVE_SUBJECT_COMPLETE_THRESHOLD,
+    ) -> Set[str]:
+        """Return the set of leaf-node ids the planner should treat as
+        completed for subject-DAG unlocking.
+
+        The set is derived at call time from
+        :meth:`effectively_completed_tracks` — for each qualifying
+        track we mark every atomic learning node as virtually complete
+        so downstream tracks whose leaf prerequisites live in that
+        track become eligible. This is what enables Case A3
+        (PF=8 self-assessment => Java eligible on day one) without
+        touching the roadmap unlock rules KB/UI depend on.
+        """
+        # Local import to avoid a cycle at module import time.
+        from roadmap import get_roadmap
+
+        effective_tracks = self.effectively_completed_tracks(threshold=threshold)
+        if not effective_tracks:
+            return set()
+        roadmap = get_roadmap()
+        ids: Set[str] = set()
+        for node in roadmap.get_learning_nodes():
+            if node.get("track") in effective_tracks:
+                ids.add(node.get("id"))
+        return ids
+
+    def recent_topics(self, limit: int = 5) -> List[str]:
+        """Return the recent topic ids the learner practised (newest
+        last). Feeds ``topic_freshness_penalty`` in the ranker so
+        same-topic repetition is avoided even when the node id
+        differs across days.
+        """
+        topics: List[str] = []
+        for row in list(self.recent_completions or [])[:limit]:
+            if not isinstance(row, dict):
+                continue
+            topic = row.get("topic") or row.get("topic_id")
+            if topic:
+                topics.append(topic)
+        return topics
 
 
 def build_learner_context(

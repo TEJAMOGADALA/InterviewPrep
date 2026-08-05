@@ -121,11 +121,19 @@ def cold_start_candidate(
     """Return the entry-track node for a first-time learner, or None.
 
     The strategy is a NO-OP for any learner who has recorded
-    completions, who has a mid+ onboarding position, or who declared
-    even modest baseline knowledge on their self-assessment. In every
-    other case the orchestrator uses the normal priority engine —
-    which itself has a foundation-first bonus (see ranking.py) that
-    handles returning learners with weak fundamentals correctly.
+    completions, who declares meaningful knowledge on ANY track
+    (effective_knowledge above ``low_score_threshold * 10`` since
+    self-assessment is 0-10 and effective knowledge is 0-100), or who
+    already has enough signal for the normal priority engine.
+
+    Phase 4 Step 2 refinement: cold-start uses the LearnerContext's
+    ``effective_knowledge_score`` rather than the raw self-assessment
+    dict, so a returning learner whose actual mastery is high but
+    onboarding was minimal doesn't get force-restarted at the entry
+    track (and, conversely, a self-declared strong beginner like
+    Case A3 falls THROUGH to normal ranking where their high effective
+    knowledge on the entry track lets downstream tracks unlock via
+    ``virtual_completed_node_ids``).
 
     Baseline tracks are derived from the LearnerContext's declared
     self-assessment map so the strategy generalizes to future
@@ -138,6 +146,18 @@ def cold_start_candidate(
         inexperienced_positions=positions,
         low_score_threshold=low_score_threshold,
         baseline_tracks=baseline_tracks,
+    ):
+        return None
+
+    # Additional Phase 4 Step 2 guard: even for an inexperienced
+    # position, if the learner's effective knowledge on ANY baseline
+    # track is meaningfully high (e.g. self-declared PF=8 with zero
+    # completions), fall through to normal ranking so the model can
+    # route them into the next-appropriate subject rather than
+    # forcing them back to the entry track. This is the mechanism
+    # that satisfies Case A3.
+    if baseline_tracks and any(
+        context.effective_knowledge_score(t) >= 50.0 for t in baseline_tracks
     ):
         return None
 

@@ -1,64 +1,39 @@
 """Ranking model for additive learning recommendations."""
 from __future__ import annotations
 
-from typing import Iterable, List, Optional
+from typing import Any, Iterable, List, Optional
 
 from roadmap import get_roadmap
+from services.learning_engine.adaptive_weights import (
+    DEFAULT_ADAPTIVE_WEIGHTS, ResolvedWeights, resolve_weights,
+)
 from services.learning_engine.roi import compute_learning_roi
 
+# Legacy per-signal constants kept as module-level aliases so any external
+# caller that imported them by name (tests, docs) still sees the same
+# numeric values. The canonical source of truth is now
+# ``adaptive_weights.DEFAULT_ADAPTIVE_WEIGHTS`` — every weight below
+# reads from that dict so tuning happens in ONE place.
 _DIFFICULTY_PENALTY = {"easy": 0.0, "medium": 0.2, "hard": 0.4}
-
-# Foundation RC1.2 item 1: a category can author several sibling learning
-# nodes (e.g. dsa.foundations.arrays.traversal|prefix_sum|two_pointer) with
-# an authored `order` but no explicit `prerequisites` edge between them yet.
-# Rather than hand-authoring every such edge (or inventing a second graph),
-# this gate reuses the roadmap's own existing `category`/`order` fields: a
-# later-order sibling is heavily deprioritized in ranking while an earlier,
-# unlocked, incomplete sibling in the same category still needs finishing.
-# It never changes `roadmap.is_unlocked`/`get_unlocked_nodes` (no regression
-# to Knowledge Base unlock state) — this is a ranking-time preference only.
-_SEQUENCE_GATE_PENALTY = 1000.0
-
-# Foundation RC1.2 item 6: a light nudge away from a node recommended in one
-# of the learner's last few missions, so the planner doesn't repeat the same
-# pick day after day. Small relative to knowledge_gap so it only breaks ties
-# / near-ties — it never overrides a genuinely weak, unlocked, high-priority
-# node, and it never violates prerequisites (candidates are already filtered
-# to unlocked nodes before this runs).
-_RECENCY_PENALTY = 12.0
-
-# RC1.3.3 · Skipped-mission deferral penalty. Stronger than recency but
-# weaker than the sequence gate. A node the learner actively skipped in
-# a recent mission is deferred — never permanently blocked (so it will
-# resurface once the pool rotates), but not immediately re-picked
-# either. Kept intentionally decoupled from `_RECENCY_PENALTY` because
-# "skipped" carries a different intent than "recently offered": the
-# learner said no, so give them room to breathe.
-_SKIP_DEFERRAL_PENALTY = 28.0
-
-# RC1.3.3 · Same-track fatigue penalty. When the learner has already
-# done 2+ consecutive missions on the same track AND their experience
-# band is ≥ mid, a light penalty encourages variety. Never applied for
-# students / juniors, where consecutive same-track sessions are
-# pedagogically valuable (building foundations). Small enough to only
-# break near-ties, never override strong-signal choices.
-_TRACK_FATIGUE_PENALTY = 8.0
-
-# RC1.3.3 · Foundation-first bonus. When the learner's onboarding self-
-# assessment on a track is very low (< 3.5 / 10), boost candidates that
-# have no prerequisites (roadmap-leaf entry points) so first missions
-# genuinely start from the foundation. Same signal every existing
-# consumer already reads (onboarding.self_assessment) — no new store.
-# Additive so it can never OVERRIDE existing signals; it only breaks
-# ties in favour of foundational nodes for beginners.
-_FOUNDATION_BONUS = 22.0
+_SEQUENCE_GATE_PENALTY = DEFAULT_ADAPTIVE_WEIGHTS["sequence_penalty"]
+_RECENCY_PENALTY = DEFAULT_ADAPTIVE_WEIGHTS["recency_penalty"]
+_SKIP_DEFERRAL_PENALTY = DEFAULT_ADAPTIVE_WEIGHTS["skip_penalty"]
+_TRACK_FATIGUE_PENALTY = DEFAULT_ADAPTIVE_WEIGHTS["fatigue_penalty"]
+_FOUNDATION_BONUS = DEFAULT_ADAPTIVE_WEIGHTS["foundation_bonus"]
 
 # Experience bands that grant same-track fatigue penalty. Beginner bands
 # ("student", "0-1") are excluded so they can safely stay in the same
 # track for consecutive days while learning foundations.
+#
+# NOTE: this is NOT a hardcoded learner profile — it is a curriculum-
+# authored VOCABULARY of experience bands. Extending the vocabulary is
+# additive; the scoring formula never inspects a specific band name.
 _FATIGUE_ELIGIBLE_POSITIONS = {"1-3", "3-5", "5+"}
 
 _COMPLETED_STATUSES = {"completed", "mastered", "revision_due"}
+
+# Difficulty ordinal used by the smoothness signal (Phase 4 Step 2).
+_DIFFICULTY_ORDINAL = {"easy": 0, "medium": 1, "hard": 2}
 
 
 def _has_incomplete_earlier_sibling(node: dict, progress_map: dict) -> bool:
@@ -116,6 +91,214 @@ def _is_foundation_node(node: dict) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Phase 4 Step 2 · adaptive-signal helpers
+# ---------------------------------------------------------------------------
+#
+# Each helper below is a pure function of ONE candidate + the learner
+# context. They exist so `score_learning_node` reads as a clean weighted
+# sum of named terms — you can point at any line and know exactly which
+# term it is. Adding a new signal means adding one helper + one weight
+# + one line in the summation; no other file needs to change.
+#
+# All helpers are safe against `context is None` (return 0.0), keeping
+# byte-identical output for pre-Phase-4-Step-2 callers.
+
+def _effective_knowledge_gap(node: dict, context: Any) -> float:
+    """Blended (self-assessment + actual mastery) knowledge-gap term.
+
+    Uses the LearnerContext.effective_knowledge_score(track), so early
+    on the signal comes primarily from the onboarding self-assessment
+    and — as the learner completes nodes on the track — it shifts to
+    actual mastery. This is the mechanism satisfying Case J
+    ("actual progress outweighs onboarding") without any hardcoded
+    threshold or if/else.
+
+    When the learner has declared target companies, the gap-signal is
+    amplified proportionally to the roadmap-authored company_importance
+    of the candidate's track. This is what makes "different companies
+    naturally receive different missions" (Cases E, K) fall out of the
+    weighted sum instead of a company-specific if/else — a track that
+    matters more to the target company sees a bigger gap-signal, so
+    weak areas on that track win over weak areas on off-target tracks.
+    """
+    if context is None:
+        return 0.0
+    track = node.get("track")
+    effective = float(context.effective_knowledge_score(track))
+    gap = max(0.0, 100.0 - effective)
+    if track and context.target_companies:
+        roadmap = get_roadmap()
+        max_importance = max(
+            (roadmap.company_importance(track, str(c).lower()) for c in context.target_companies),
+            default=0,
+        )
+        # Amplification factor: 0-5 importance → 1x-3x amplification.
+        # Kept multiplicative on `gap` so a track the learner already
+        # knows well never gets over-amplified — a zero gap stays zero.
+        gap *= 1.0 + max_importance / 2.5
+    return gap
+
+
+def _subject_readiness_bonus(node: dict, context: Any) -> float:
+    """Small positive bonus proportional to the learning HEADROOM on
+    the candidate's track — tracks the learner already knows well get
+    proportionally less of it, so this term naturally rotates focus
+    toward areas with genuine growth potential.
+
+    Bounded [0, 1]. Multiplied by the resolved
+    ``subject_readiness_bonus`` weight at the summation site.
+    """
+    if context is None:
+        return 0.0
+    effective = float(context.effective_knowledge_score(node.get("track")))
+    return max(0.0, 1.0 - effective / 100.0)
+
+
+def _subject_transition_bonus(node: dict, context: Any) -> float:
+    """Reward candidates on a track that becomes *available* only after
+    the learner effectively completes its prerequisite subjects.
+
+    Fires only when: (a) the candidate's track has at least one
+    ``subject_prerequisites`` entry, and (b) EVERY prerequisite has
+    been effectively completed by the learner. This is what lets the
+    scoring model migrate the learner from Programming Fundamentals →
+    Java, from Java → DSA/Core CS, from Core CS → LLD/HLD, without any
+    scenario-specific branching.
+    """
+    if context is None:
+        return 0.0
+    track_id = node.get("track")
+    if not track_id:
+        return 0.0
+    track = get_roadmap().get(track_id)
+    prereqs = (track or {}).get("subject_prerequisites") or []
+    if not prereqs:
+        return 0.0
+    effective_done = context.effectively_completed_tracks()
+    if not all(pre in effective_done for pre in prereqs):
+        return 0.0
+    # 1.0 when the candidate's own track is still lightly known (i.e.
+    # a genuine "enter this new subject" moment), scaling down as the
+    # learner accumulates mastery on it.
+    own_score = float(context.effective_knowledge_score(track_id))
+    return max(0.0, 1.0 - own_score / 100.0)
+
+
+def _prerequisite_gap_penalty(node: dict, context: Any) -> float:
+    """Penalise candidates in tracks whose subject-prerequisites are
+    still weak in effective_knowledge.
+
+    Prevents the ranker from surfacing an "unlocked" HLD node when the
+    learner's Java is still 4/10 — advanced content should wait until
+    fundamentals firm up.
+
+    Returns the SUM of shortfalls across every prerequisite subject
+    (each 0-1). A track with five weak prereqs (like HLD) accumulates
+    a much larger penalty than a track with one weak prereq (like
+    DSA), which is exactly the discrimination needed to keep
+    beginners out of deep, multi-prereq subjects.
+    """
+    if context is None:
+        return 0.0
+    track_id = node.get("track")
+    if not track_id:
+        return 0.0
+    track = get_roadmap().get(track_id)
+    prereqs = (track or {}).get("subject_prerequisites") or []
+    if not prereqs:
+        return 0.0
+    total_shortfall = 0.0
+    for pre in prereqs:
+        eff = float(context.effective_knowledge_score(pre))
+        total_shortfall += max(0.0, 100.0 - eff) / 100.0
+    return total_shortfall
+
+
+def _momentum_bonus(node: dict, context: Any) -> float:
+    """Small bonus for candidates on tracks where the learner is
+    actively completing nodes right now — rewards a healthy streak.
+    Uses ``recent_track_ids``. Bounded [0, 1]."""
+    if context is None:
+        return 0.0
+    track = node.get("track")
+    if not track:
+        return 0.0
+    recent = list(context.recent_track_ids or [])
+    if not recent:
+        return 0.0
+    hits = sum(1 for t in recent[-5:] if t == track)
+    return min(1.0, hits / 3.0)  # 3+ recent hits = full bonus
+
+
+def _topic_freshness_penalty(node: dict, context: Any) -> float:
+    """Penalise candidates whose TOPIC (not just node id) was completed
+    very recently. Prevents same-topic repetition even across
+    different leaf nodes. Bounded [0, 1]."""
+    if context is None:
+        return 0.0
+    topic = node.get("topic") or node.get("subtopic")
+    if not topic:
+        return 0.0
+    recent_topics = context.recent_topics(limit=5)
+    if not recent_topics:
+        return 0.0
+    if topic in recent_topics[-3:]:
+        return 1.0
+    if topic in recent_topics:
+        return 0.5
+    return 0.0
+
+
+def _difficulty_smoothness_penalty(node: dict, context: Any) -> float:
+    """Penalise a hard jump from the learner's current effective mastery
+    to the candidate's authored difficulty.
+
+    Effective mastery is bucketed into three bands (easy: <40, medium:
+    40-70, hard: ≥70); the penalty grows as the candidate's difficulty
+    steps beyond that band. This is what enforces "no jumping to
+    advanced" without a hardcoded difficulty ladder — the ladder is
+    derived from live mastery.
+    """
+    if context is None:
+        return 0.0
+    difficulty = (node.get("difficulty") or "medium").lower()
+    node_level = _DIFFICULTY_ORDINAL.get(difficulty, 1)
+    mastery = float(context.effective_knowledge_score(node.get("track")))
+    if mastery >= 70.0:
+        learner_level = 2  # hard
+    elif mastery >= 40.0:
+        learner_level = 1  # medium
+    else:
+        learner_level = 0  # easy
+    gap = node_level - learner_level
+    if gap <= 0:
+        return 0.0
+    return min(1.0, gap / 2.0)
+
+
+def _revision_confidence_bonus(node: dict, progress: dict, context: Any) -> float:
+    """Small extra weight when the candidate is BOTH revision-due AND the
+    learner's confidence has dropped since completion — precisely the
+    case where spaced-repetition needs to fire strongly.
+    """
+    if context is None:
+        return 0.0
+    if not progress:
+        return 0.0
+    next_revision = progress.get("next_revision")
+    if not next_revision:
+        return 0.0
+    try:
+        confidence = float(progress.get("confidence", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    # Confidence < 6/10 on a revision-due node = strong forget signal.
+    if confidence >= 6.0:
+        return 0.0
+    return min(1.0, (6.0 - confidence) / 6.0)
+
+
 def score_learning_node(
     node: dict,
     progress: Optional[dict] = None,
@@ -128,6 +311,8 @@ def score_learning_node(
     recent_track_ids: Optional[Iterable[str]] = None,
     position: Optional[str] = None,
     onboarding_scores: Optional[dict] = None,
+    learner_context: Optional[Any] = None,
+    weights: Optional[ResolvedWeights] = None,
 ) -> dict:
     """Score one candidate node and return every factor that produced the score.
 
@@ -136,55 +321,29 @@ def score_learning_node(
     winning node so the "why was this picked" explanation can never drift from
     what actually ranked it — there is no second, duplicated scoring formula.
 
-    `urgency` (0.0-1.0, default 0.0) is an optional interview-deadline pacing
-    signal from services/learning_engine/pacing.py. At the default of 0.0 it
-    contributes nothing, so callers that don't pass it get byte-identical
-    scores to before. When >0, it rewards higher interview_importance /
-    interview_frequency nodes and lightly penalizes long estimated_minutes,
-    so accelerated/critical pacing naturally skips slow, low-yield detours.
+    All keyword arguments are OPTIONAL. Callers who omit
+    ``learner_context`` get byte-identical scores to before Phase 4
+    Step 2 (adaptive terms all evaluate to zero without a context).
 
-    `target_companies` (Phase 4A) activates `company_score`, sourced via
-    `roadmap.company_importance()` — the single source of truth for company
-    weighting.
+    ``learner_context`` (Phase 4 Step 2) is a
+    :class:`services.learning_engine.context.LearnerContext`. Passing
+    it activates the adaptive signal terms:
+        - effective_knowledge_gap (blended self-assessment + actual)
+        - subject_readiness_bonus (learning-headroom bonus)
+        - subject_transition_bonus (rewards a track becoming available)
+        - prerequisite_gap_penalty (guard against advanced-content jumps)
+        - momentum_bonus (rewards active streaks on the same track)
+        - topic_freshness_penalty (variety across days)
+        - difficulty_smoothness_penalty (no big difficulty jumps)
+        - revision_confidence_bonus (spaced-repetition + forget signal)
 
-    `mastery_weight` (roadmap_v1.json, per node, default 1.0) scales the core
-    knowledge-gap terms (confidence/weakness/mastery) so nodes the roadmap
-    marks as counting more toward track mastery are prioritized higher.
-
-    `roi` (Phase 4B, services/learning_engine/roi.py) is derived on demand
-    from the roadmap's existing prerequisite graph — never stored, never
-    duplicated — and contributes a light bonus for nodes that unlock more
-    future curriculum, on the same weight scale as `company_score`.
-
-    `progress_map` (Foundation RC1.2, optional) is the full user-progress map
-    keyed by node_id — not just this node's own row — so `_SEQUENCE_GATE_PENALTY`
-    can check sibling completion. Defaults to None (no-op: no penalty applied).
-
-    `recent_node_ids` (Foundation RC1.2, optional) applies `_RECENCY_PENALTY`
-    when this node was recommended in one of the learner's last few missions.
-
-    RC1.3.3 additions (all optional; every existing caller keeps identical
-    output when not passing them):
-
-    * ``skipped_node_ids`` — nodes the learner recently skipped receive a
-      moderate deferral penalty so we don't immediately re-offer them.
-    * ``recent_track_ids`` — the tracks that appeared in the learner's
-      last N missions (in order, newest last). When the learner's
-      ``position`` indicates mid+ experience AND the same track appears
-      2+ times consecutively at the end of that list, apply
-      ``_TRACK_FATIGUE_PENALTY`` to candidates on that track. Beginner
-      bands never receive this penalty (they benefit from continuity).
-    * ``position`` — the learner's onboarding experience band, used by
-      the fatigue rule above.
-    * ``onboarding_scores`` — the learner's self-assessment dict
-      (track_id → 0-10). Nodes on a track where the learner declared
-      very low knowledge (<3.5) AND which are foundational entry points
-      (no prerequisites, or order == 1) get ``_FOUNDATION_BONUS``. This
-      is the mechanism that steers beginners to genuinely foundational
-      concepts on day one instead of intermediate unlocks.
+    ``weights`` allows a caller to override a subset of weights for
+    experimentation without recomputing the full pipeline. Defaults to
+    the canonical :data:`adaptive_weights.DEFAULT_ADAPTIVE_WEIGHTS`.
     """
     progress = progress or {}
     companies = [company.lower() for company in (target_companies or [])]
+    w = weights if isinstance(weights, ResolvedWeights) else resolve_weights()
 
     confidence = float(progress.get("confidence", 0.0) or 0.0)
     weakness = float(progress.get("weakness_score", 100.0) or 100.0)
@@ -225,17 +384,17 @@ def score_learning_node(
     roi_score = roi["roi_score"]
 
     sequence_penalty = (
-        _SEQUENCE_GATE_PENALTY
+        w["sequence_penalty"]
         if progress_map is not None and _has_incomplete_earlier_sibling(node, progress_map)
         else 0.0
     )
     recency_penalty = (
-        _RECENCY_PENALTY if node_id and node_id in (recent_node_ids or ()) else 0.0
+        w["recency_penalty"] if node_id and node_id in (recent_node_ids or ()) else 0.0
     )
 
     # ---- RC1.3.3 · skipped-node deferral --------------------------------
     skip_penalty = (
-        _SKIP_DEFERRAL_PENALTY
+        w["skip_penalty"]
         if node_id and node_id in (skipped_node_ids or ())
         else 0.0
     )
@@ -252,28 +411,64 @@ def score_learning_node(
         and recent_tracks_list[-1] == track
         and recent_tracks_list[-2] == track
     ):
-        fatigue_penalty = _TRACK_FATIGUE_PENALTY
+        fatigue_penalty = w["fatigue_penalty"]
 
     # ---- RC1.3.3 · foundation-first bias --------------------------------
     # Kick in only when the learner has a *declared* low self-assessment
-    # on this track AND the candidate is a foundational entry point.
+    # on this track AND the candidate is a foundational entry point AND
+    # (Phase 4 Step 2) — when a LearnerContext is supplied — the track's
+    # subject-prerequisites are effectively complete. Firing the bonus on
+    # a foundational node in a track the learner isn't ready to enter yet
+    # (e.g. HLD when Java is still unknown) was letting the model surface
+    # "unlocked but way-too-advanced" nodes; gating on effective subject-
+    # DAG readiness removes that failure mode.
     onboarding_track_score = _onboarding_score_for_track(onboarding_scores, track)
     foundation_bonus = 0.0
     if onboarding_track_score is not None and onboarding_track_score < 3.5 and _is_foundation_node(node):
-        foundation_bonus = _FOUNDATION_BONUS
+        subject_ready = True
+        if learner_context is not None and track:
+            track_meta = roadmap.get(track)
+            subject_prereqs = (track_meta or {}).get("subject_prerequisites") or []
+            if subject_prereqs:
+                effectively_done = learner_context.effectively_completed_tracks()
+                subject_ready = all(pre in effectively_done for pre in subject_prereqs)
+        if subject_ready:
+            foundation_bonus = w["foundation_bonus"]
+
+    # ---- Phase 4 Step 2 · adaptive signal terms -------------------------
+    # Each term is a scalar in a bounded range multiplied by its
+    # centralised weight. All terms evaluate to 0.0 when
+    # ``learner_context is None`` so the pre-Phase-4-Step-2 output is
+    # preserved byte-for-byte.
+    effective_gap = _effective_knowledge_gap(node, learner_context)
+    subject_readiness = _subject_readiness_bonus(node, learner_context)
+    subject_transition = _subject_transition_bonus(node, learner_context)
+    prereq_gap = _prerequisite_gap_penalty(node, learner_context)
+    momentum = _momentum_bonus(node, learner_context)
+    topic_freshness = _topic_freshness_penalty(node, learner_context)
+    difficulty_smoothness = _difficulty_smoothness_penalty(node, learner_context)
+    revision_confidence = _revision_confidence_bonus(node, progress, learner_context)
 
     total_score = (
         knowledge_gap * mastery_weight
-        + company_score * 3.0
-        + roi_score * 0.05
-        - difficulty_penalty * 10.0
-        - min(estimated_minutes, 60) * 0.01
+        + effective_gap * w["effective_knowledge_gap"]
+        + company_score * w["company_score"]
+        + roi_score * w["roi_score"]
+        - difficulty_penalty * w["difficulty_penalty"]
+        - min(estimated_minutes, 60) * w["estimated_minutes"]
         + urgency_bonus
         - sequence_penalty
         - recency_penalty
         - skip_penalty
         - fatigue_penalty
         + foundation_bonus
+        + subject_readiness * w["subject_readiness_bonus"]
+        + subject_transition * w["subject_transition_bonus"]
+        - prereq_gap * w["prerequisite_gap_penalty"]
+        + momentum * w["momentum_bonus"]
+        - topic_freshness * w["topic_freshness_penalty"]
+        - difficulty_smoothness * w["difficulty_smoothness_penalty"]
+        + revision_confidence * w["revision_confidence_bonus"]
     )
 
     return {
@@ -301,6 +496,15 @@ def score_learning_node(
         "skip_penalty": skip_penalty,
         "fatigue_penalty": fatigue_penalty,
         "foundation_bonus": foundation_bonus,
+        # Phase 4 Step 2 · adaptive audit fields.
+        "effective_knowledge_gap": effective_gap,
+        "subject_readiness_bonus": subject_readiness,
+        "subject_transition_bonus": subject_transition,
+        "prerequisite_gap_penalty": prereq_gap,
+        "momentum_bonus": momentum,
+        "topic_freshness_penalty": topic_freshness,
+        "difficulty_smoothness_penalty": difficulty_smoothness,
+        "revision_confidence_bonus": revision_confidence,
     }
 
 
@@ -315,6 +519,8 @@ def rank_learning_nodes(
     recent_track_ids: Optional[Iterable[str]] = None,
     position: Optional[str] = None,
     onboarding_scores: Optional[dict] = None,
+    learner_context: Optional[Any] = None,
+    weights: Optional[ResolvedWeights] = None,
 ) -> List[dict]:
     """Rank nodes by a simple, isolated scoring model (see `score_learning_node`).
 
@@ -324,6 +530,10 @@ def rank_learning_nodes(
     All RC1.3.3 additions are forwarded to `score_learning_node`. Each is
     optional (default None) — callers that don't pass them get byte-
     identical ranking to before.
+
+    Phase 4 Step 2 additions (``learner_context``, ``weights``) are also
+    fully optional — passing them activates the adaptive signal terms
+    described in ``score_learning_node``.
     """
     progress_map = progress_map or {}
 
@@ -340,6 +550,8 @@ def rank_learning_nodes(
             recent_track_ids=recent_track_ids,
             position=position,
             onboarding_scores=onboarding_scores,
+            learner_context=learner_context,
+            weights=weights,
         )
         scored.append((breakdown["total_score"], breakdown["company_score"], node))
 
